@@ -312,7 +312,11 @@ test("login works with keyboard and leaves no protected content before authentic
     if (route.request().method() === "POST") authenticated = true;
     await route.fulfill(
       authenticated
-        ? { json: session }
+        ? { json: {
+            user: { id: session.user.id, display_name: session.user.name, role: "specialist" },
+            csrf_token: session.csrf_token,
+            expires_at: "2026-10-10T20:00:00Z",
+          } }
         : { status: 401, json: { code: "UNAUTHORIZED" } },
     );
   });

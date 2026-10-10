@@ -25,7 +25,10 @@ export function App() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: ({ signal }) => resolveSession(signal),
-    staleTime: 60_000,
+    // INF01 cannot recover CSRF after a reload yet; commands still validate
+    // the cookie server-side and any 401 clears the protected cache.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   });
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -60,13 +63,14 @@ export function App() {
       </Routes>
     );
   const { user } = session.data;
+  const home = user.role === "admin" ? "/admin" : "/packages";
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
         Перейти к содержимому
       </a>
       <aside className="sidebar">
-        <NavLink className="brand" to="/packages">
+        <NavLink className="brand" to={home}>
           <span className="brand-mark">
             <ClipboardCheck size={22} />
           </span>
@@ -77,10 +81,12 @@ export function App() {
         </NavLink>
         <div className="nav-caption">РАБОЧЕЕ МЕСТО</div>
         <nav aria-label="Основная навигация">
-          <NavLink to="/packages">
-            <Files size={18} />
-            Заявки
-          </NavLink>
+          {user.role === "specialist" && (
+            <NavLink to="/packages">
+              <Files size={18} />
+              Заявки
+            </NavLink>
+          )}
           {user.role === "admin" && (
             <NavLink to="/admin">
               <Settings2 size={18} />
@@ -124,8 +130,14 @@ export function App() {
         <main id="main">
           <ErrorNotice error={logout.error} />
           <Routes>
-            <Route path="/packages" element={<PackageList />} />
-            <Route path="/packages/:id" element={<PackageWorkspace />} />
+            <Route
+              path="/packages"
+              element={user.role === "specialist" ? <PackageList /> : <Navigate to="/admin" replace />}
+            />
+            <Route
+              path="/packages/:id"
+              element={user.role === "specialist" ? <PackageWorkspace /> : <Navigate to="/admin" replace />}
+            />
             <Route
               path="/admin/*"
               element={
@@ -136,7 +148,7 @@ export function App() {
                 )
               }
             />
-            <Route path="*" element={<Navigate to="/packages" replace />} />
+            <Route path="*" element={<Navigate to={home} replace />} />
           </Routes>
         </main>
       </div>

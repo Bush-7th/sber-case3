@@ -84,11 +84,38 @@ const json = (method: string, body: unknown): RequestInit => ({
   method,
   body: JSON.stringify(body),
 });
+// INF01 names users and roles differently from the internal UI model.
+const loginResponseSchema = z.object({
+  user: z.object({
+    id: z.string(),
+    display_name: z.string(),
+    role: z.enum(["specialist", "administrator"]),
+  }),
+  expires_at: z.string(),
+  csrf_token: z.string().min(1),
+}).transform((session): c.Session => ({
+  user: {
+    id: session.user.id,
+    name: session.user.display_name,
+    role: session.user.role === "administrator" ? "admin" : "specialist",
+  },
+  csrf_token: session.csrf_token,
+}));
 export const api = {
-  session: (signal?: AbortSignal) =>
-    request("/sessions", c.sessionSchema, { signal }),
+  session: async (signal?: AbortSignal) => {
+    try {
+      return await request("/sessions", c.sessionSchema, { signal });
+    } catch (error) {
+      // INF01 has POST/DELETE sessions only. A reload requires a fresh login
+      // until the server provides a session recovery endpoint.
+      if (error instanceof ApiError && [404, 405].includes(error.status)) {
+        return null;
+      }
+      throw error;
+    }
+  },
   login: (login: string, password: string) =>
-    request("/sessions", c.sessionSchema, json("POST", { login, password })),
+    request("/sessions", loginResponseSchema, json("POST", { username: login, password })),
   logout: () => request("/sessions", z.null(), { method: "DELETE" }),
   programs: (signal?: AbortSignal) =>
     request("/programs", c.pageOf(c.programSchema), { signal }),

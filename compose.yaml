@@ -1,0 +1,109 @@
+name: case3
+
+x-server-environment: &server-environment
+  APP_ENV: ${APP_ENV:-local}
+  POSTGRES_DB: ${POSTGRES_DB:-case3}
+  POSTGRES_USER: ${POSTGRES_USER:-case3}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  DB_HOST: db
+  DB_PORT: "5432"
+  SESSION_HOURS: ${SESSION_HOURS:-8}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:8000","http://127.0.0.1:8000"]}
+  BLOB_BACKEND: postgres
+  OFFICE_CONVERTER: ${OFFICE_CONVERTER:-disabled}
+  MODEL_PROVIDER: ${MODEL_PROVIDER:-local}
+  LOCAL_BASE_URL: http://ollama:11434
+  LOCAL_MODEL: ${LOCAL_MODEL:-qwen3-vl:4b-instruct}
+  LOCAL_TIMEOUT_SECONDS: ${LOCAL_TIMEOUT_SECONDS:-300}
+  OLMOCR_BASE_URL: ${OLMOCR_BASE_URL:-https://ocr.ilons.ru}
+  OLMOCR_API_TOKEN: ${OLMOCR_API_TOKEN:-}
+  OLMOCR_TIMEOUT_SECONDS: ${OLMOCR_TIMEOUT_SECONDS:-300}
+  QWEN_BASE_URL: ${QWEN_BASE_URL:-https://llm.ilons.ru}
+  QWEN_MODEL: ${QWEN_MODEL:-Qwen/Qwen3.8-27B}
+  QWEN_CONTEXT_WINDOW_SIZE: ${QWEN_CONTEXT_WINDOW_SIZE:-262000}
+  ILONS_API_KEY: ${ILONS_API_KEY:-}
+  QWEN_GENERATION_PATH: ${QWEN_GENERATION_PATH:-}
+  QWEN_API_FORMAT: ${QWEN_API_FORMAT:-}
+  QWEN_AUTH_HEADER: ${QWEN_AUTH_HEADER:-}
+  QWEN_AUTH_SCHEME: ${QWEN_AUTH_SCHEME:-}
+  # Empty optional Qwen fields stay unset in local mode; no undocumented timeout is guessed.
+  QWEN_TIMEOUT_SECONDS: ${QWEN_TIMEOUT_SECONDS:-}
+
+x-backend: &backend
+  image: case3-backend:inf01
+  build:
+    context: ./backend
+  environment: *server-environment
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  db:
+    image: postgres:17.11-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-case3}
+      POSTGRES_USER: ${POSTGRES_USER:-case3}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # No host port: PostgreSQL is reachable only within the Compose network.
+
+  migrate:
+    <<: *backend
+    command: ["python", "-m", "app.runtime.cli", "migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bootstrap:
+    <<: *backend
+    environment:
+      <<: *server-environment
+      BOOTSTRAP_SPECIALIST_USERNAME: ${BOOTSTRAP_SPECIALIST_USERNAME:-specialist}
+      BOOTSTRAP_SPECIALIST_PASSWORD: ${BOOTSTRAP_SPECIALIST_PASSWORD:?Set specialist password in .env}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-administrator}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set administrator password in .env}
+    command: ["python", "-m", "app.runtime.cli", "bootstrap"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.12.3@sha256:c622a7adec67cf5bd7fe1802b7e26aa583a955a54e91d132889301f50c3e0bd0
+    profiles: [local]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    # No host port and no automatic model download. Actual inference is verified in LOC01.
+
+volumes:
+  postgres-data:
+  ollama-data:

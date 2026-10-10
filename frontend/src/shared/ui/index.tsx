@@ -42,6 +42,8 @@ const messages: Record<string, string> = {
 };
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    if (error.status === 401 && error.code === "invalid_credentials")
+      return "Неверный логин или пароль.";
     if (error.status === 401) return "Сессия закончилась. Войдите снова.";
     if (error.status === 403)
       return "У вашей учётной записи нет доступа к этому действию.";
@@ -51,6 +53,8 @@ export function errorMessage(error: unknown): string {
       return "Загрузка превышает ограничение сервера. Уменьшите пакет.";
     if (error.status === 422)
       return "Сервер отклонил данные формы. Проверьте заполненные поля.";
+    if (error.status === 501)
+      return "Эта функция пока недоступна.";
     if (error.status === 503)
       return "Сервис временно недоступен. Повторите позже.";
     return (

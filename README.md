@@ -8,13 +8,14 @@
 - [Анализ кейса 3 и выбор стека](docs/case_3.md).
 - [Коллаборация двух участников](docs/collaboration.md) — задачи, владельцы, контрольные точки и блокеры.
 - [Контракт API и типизированный клиент](docs/api-contract.md) — этап CON01, генерация и проверки.
+- [Инфраструктура и запуск](docs/runtime.md) — этап INF01, Compose, миграции, сессии и проверки.
 - [Сводка исходного положения и общих требований](docs/summary.md).
 
 Репозиторий: [Bush-7th/sber-case3](https://github.com/Bush-7th/sber-case3).
 
 ## Фронтенд разработчика B
 
-Реализован M14: React/TypeScript/Vite, TanStack Query, интерфейсы специалиста и администратора. Ветка `frontend/UI01`. Из main объединены контрактный backend/OpenAPI и клиент CON01. Прикладные обработчики и сквозная приёмка ещё не готовы. UI пока использует предварительный адаптер `client.ts`; окончательный типизированный клиент доступен через `shared/api/index.ts` и реализован в `openapi-client.ts`. Перевод экранов на DTO CON01 остаётся задачей интеграции.
+Реализован M14: React/TypeScript/Vite, TanStack Query, интерфейсы специалиста и администратора. Ветка `frontend/UI01`. Из main объединены CON01/INF01. Вход и выход подключены к реальному API; остальные прикладные операции и сквозная приёмка ещё не готовы. UI использует адаптер `client.ts`; типизированный клиент доступен через `shared/api/index.ts` и реализован в `openapi-client.ts`. Перевод остальных экранов на DTO CON01 остаётся задачей интеграции.
 
 Для локальной разработки нужен Node.js 24 (точная версия — `frontend/.node-version`):
 
@@ -33,6 +34,8 @@ npm run dev
 
 Открыть `http://127.0.0.1:5173`. Dev proxy направляет `/api` на `http://127.0.0.1:8000`; адрес задаётся `API_PROXY_TARGET` в frontend/.env. Учётные записи создаёт backend A, тестовых логинов в рабочем приложении нет. Без API экран показывает ошибку подключения.
 
+Для текущего локального просмотра в Windows запущены Vite на `127.0.0.1:5173`, API в WSL на `127.0.0.1:18802` и отдельная PostgreSQL проекта. Адрес API записан в игнорируемом `frontend/.env`. Созданы `specialist` и `administrator`; их случайные локальные пароли находятся в `BOOTSTRAP_SPECIALIST_PASSWORD` / `BOOTSTRAP_ADMIN_PASSWORD` корневого `.env`. Вход и выход используют настоящие серверные сессии. Список заявок и административные операции пока показывают недоступность функции (501).
+
 ```powershell
 npm run build
 npm run typecheck
@@ -46,15 +49,17 @@ npm run test:e2e
 
 Передача A: [контракт клиента](docs/frontend-contract.md), [каталог](catalogs/README.md). Материалы B: [тестовая матрица](docs/test-matrix.md), [архитектура](docs/architecture.md), [решения](docs/decisions.md), [локальная модель](docs/local-model.md), [ограничения](docs/limitations.md), [ИИ-отчёт](docs/ai-usage.md), [сценарий защиты](docs/demo.md).
 
-## Контрактный backend CON01
+## Backend CON01 / INF01
 
-Первый этап backend — Pydantic/OpenAPI и TypeScript-клиент. Прикладные обработчики пока возвращают `501 not_implemented`; рабочие сессии, БД и обработка документов относятся к следующим задачам. GET `/sessions` и GET `/document-types` из предварительного UI-контракта ещё отсутствуют; полноценный вход через текущие экраны пока невозможен.
+Вход и выход подключены к INF01: запрос передаёт username/password, ответ display_name/administrator преобразуется в модель интерфейса. GET `/sessions` и GET `/document-types` ещё отсутствуют. После обновления страницы нужно войти снова; восстановление сессии и остальные DTO остаются задачами интеграции. Заявки, каталог и обработка документов пока отвечают `501 not_implemented`.
+
+Подготовлены Pydantic/OpenAPI, TypeScript-клиент и инфраструктура INF01: миграции PostgreSQL, bytea-хранилище, сессии и серверные права. Обработка документов и прикладные операции пока возвращают `501 not_implemented` после проверки доступа. Полный Docker-прогон ещё требует проверки; фактические результаты записаны в инструкции запуска.
 
 Контрактный API для разработки (Python 3.12–3.13 и uv):
 
 ```bash
 uv sync --project backend --locked
-uv run --project backend uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run --project backend uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
-Схема: `http://127.0.0.1:8000/openapi.json`, Swagger: `http://127.0.0.1:8000/docs`. Подготовка Node, генерация клиента и проверки описаны в документе контракта.
+Без настроек БД доступны документация и `/health/live`; вход требует миграций и bootstrap по [инструкции](docs/runtime.md). Схема: `http://127.0.0.1:8000/openapi.json`, Swagger: `http://127.0.0.1:8000/docs`. Подготовка Node, генерация клиента и проверки описаны в документе контракта.

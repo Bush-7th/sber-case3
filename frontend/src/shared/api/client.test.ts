@@ -6,6 +6,31 @@ afterEach(() => {
   setSession(null);
 });
 describe("transport guarantees", () => {
+  it.each([
+    ["specialist", "specialist"],
+    ["administrator", "admin"],
+  ])("logs in using INF01 and maps role %s to %s", async (serverRole, uiRole) => {
+    const transport = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: { id: "user-id", display_name: "User", role: serverRole },
+      expires_at: "2026-10-10T20:00:00Z",
+      csrf_token: "csrf",
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", transport);
+    await expect(api.login("username", "password")).resolves.toEqual({
+      user: { id: "user-id", name: "User", role: uiRole },
+      csrf_token: "csrf",
+    });
+    expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({
+      username: "username", password: "password",
+    });
+  });
+  it("returns to login when INF01 has no recovery endpoint, without hiding outages", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 405 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 })));
+    await expect(api.session()).resolves.toBeNull();
+    await expect(api.session()).rejects.toMatchObject({ status: 503 });
+  });
   it("rejects malformed success rather than accepting unverifiable data", async () => {
     vi.stubGlobal(
       "fetch",

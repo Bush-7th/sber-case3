@@ -199,10 +199,13 @@ def test_openapi_is_current_and_operations_have_errors_and_correct_security():
     checked_in = json.loads((Path(__file__).parents[1] / "openapi.json").read_text())
     assert checked_in == schema
     operations = [operation for path in schema["paths"].values() for operation in path.values()]
-    assert len(operations) == 25
-    assert len({operation["operationId"] for operation in operations}) == 25
+    assert len(operations) == 27
+    assert len({operation["operationId"] for operation in operations}) == 27
     for path, item in schema["paths"].items():
         for method, operation in item.items():
+            if path.startswith("/health/"):
+                assert not operation.get("security")
+                continue
             assert "422" in operation["responses"]
             if path == "/api/v1/sessions" and method == "post":
                 assert not operation.get("security")
@@ -231,10 +234,10 @@ def test_invalid_command_has_correlation_without_echoing_secret_input():
     assert "SECRET-INPUT" not in response.text
 
 
-def test_contract_server_never_claims_implemented_business_operations():
+def test_unconfigured_server_denies_protected_operations():
     with TestClient(create_app()) as client:
         for path in ("/api/v1/packages", f"/api/v1/files/{uuid4()}/content"):
             response = client.get(path)
-            assert response.status_code == 501
-            assert response.json()["code"] == "not_implemented"
+            assert response.status_code == 401
+            assert response.json()["code"] == "session_required"
             UUID(response.json()["correlation_id"])

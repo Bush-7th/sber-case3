@@ -3,10 +3,11 @@
 from typing import Annotated, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Header, Query, Response, Security, UploadFile
+from fastapi import APIRouter, File, Form, Header, Query, Request, Response, Security, UploadFile
 from fastapi.security import APIKeyCookie, APIKeyHeader
 
 from app.http_api import schemas as s
+from app.http_api.access import runtime
 
 
 class ContractUnavailable(Exception):
@@ -42,13 +43,45 @@ protected = APIRouter(dependencies=[Security(cookie)])
 
 
 @router.post("/sessions", response_model=s.SessionResponse, operation_id="create_session")
-async def create_session(body: s.SessionCreate) -> s.SessionResponse:
-    unavailable()
+def create_session(
+    body: s.SessionCreate, request: Request, response: Response
+) -> s.SessionResponse:
+    container = runtime(request)
+    issued = container.authenticate(body.username, body.password.get_secret_value())
+    response.set_cookie(
+        "session",
+        issued.cookie,
+        max_age=container.settings.session_hours * 3600,
+        httponly=True,
+        secure=container.settings.session_cookie_secure,
+        samesite="strict",
+        path="/api/v1",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return s.SessionResponse(
+        user=s.UserSummary(
+            id=issued.session.actor.id,
+            display_name=issued.session.actor.display_name,
+            role=issued.session.actor.role,
+        ),
+        expires_at=issued.session.expires_at,
+        csrf_token=issued.csrf_token,
+    )
 
 
 @protected.delete("/sessions", status_code=204, operation_id="delete_session")
-async def delete_session(csrf_token: CsrfToken) -> Response:
-    unavailable()
+def delete_session(request: Request, csrf_token: CsrfToken) -> Response:
+    container = runtime(request)
+    container.revoke_session(request.state.session)
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+    response.delete_cookie(
+        "session",
+        path="/api/v1",
+        httponly=True,
+        secure=container.settings.session_cookie_secure,
+        samesite="strict",
+    )
+    return response
 
 
 @protected.get("/programs", response_model=s.Page[s.ProgramSummary], operation_id="list_programs")

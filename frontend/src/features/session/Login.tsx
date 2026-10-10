@@ -22,7 +22,7 @@ export function Login() {
       setSession(session);
       client.setQueryData(["session"], session);
       setPassword("");
-      navigate("/packages");
+      navigate(session.user.role === "admin" ? "/admin" : "/packages");
     },
   );
   return (
