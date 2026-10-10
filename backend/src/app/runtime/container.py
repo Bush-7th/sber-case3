@@ -6,8 +6,42 @@ from app.modules.identity.domain import AccessPolicy, ResolvedSession
 from app.modules.identity.persistence import SqlIdentityRepository
 from app.modules.identity.service import IdentityService, IssuedSession
 from app.modules.inference.olmocr import OlmOcrClient
+from app.modules.inference.qwen import PROMPT_VERSION, QwenProvider, prompt_hash
+from app.modules.recognition.model import PinnedModelProfile, schema_hash
 from app.runtime.database import SqlAlchemyUnitOfWork, build_engine
-from app.runtime.settings import Settings
+from app.runtime.settings import ConfigurationError, Settings
+
+
+def build_qwen_provider(settings: Settings) -> QwenProvider:
+    # Explicit diagnostic/factory. Local startup never constructs a remote model client.
+    if (
+        not settings.ilons_api_key.get_secret_value()
+        or not settings.qwen_timeout_seconds
+        or not settings.qwen_auth_header
+        or settings.qwen_auth_scheme is None
+    ):
+        raise ConfigurationError("Set the confirmed Qwen connection and key outside Git")
+    profile = PinnedModelProfile(
+        provider="external",
+        base_url=settings.qwen_base_url,
+        model=settings.qwen_model,
+        generation_path=settings.qwen_generation_path,
+        api_format=settings.qwen_api_format,
+        prompt_version=PROMPT_VERSION,
+        prompt_hash=prompt_hash(),
+        schema_hash=schema_hash(),
+        timeout_seconds=settings.qwen_timeout_seconds,
+        max_output_tokens=settings.qwen_max_output_tokens,
+        context_window_size=settings.qwen_context_window_size,
+        max_input_bytes=settings.qwen_max_input_bytes,
+        max_response_bytes=settings.qwen_max_response_bytes,
+    )
+    return QwenProvider(
+        profile,
+        key=settings.ilons_api_key.get_secret_value(),
+        auth_header=settings.qwen_auth_header,
+        auth_scheme=settings.qwen_auth_scheme,
+    )
 
 
 def build_ocr_client(settings: Settings) -> OlmOcrClient:
@@ -53,6 +87,9 @@ class AppContainer:
     def create_ocr_client(self) -> OlmOcrClient:
         # Explicit factory; creating a local API/runtime never calls or requires remote OCR.
         return build_ocr_client(self.settings)
+
+    def create_qwen_provider(self) -> QwenProvider:
+        return build_qwen_provider(self.settings)
 
     def ocr_result_store(self) -> PostgresOcrResultStore:
         return PostgresOcrResultStore(self.session_factory)

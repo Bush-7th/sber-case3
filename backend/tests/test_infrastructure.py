@@ -51,7 +51,7 @@ def test_local_settings_do_not_require_remote_credentials_and_secrets_are_redact
         model_provider="external",
         ilons_api_key="separate-secret",
         qwen_generation_path="/confirmed-path",
-        qwen_api_format="organizer-contract",
+        qwen_api_format="openai-chat",
         qwen_auth_header="Authorization",
         qwen_auth_scheme="Bearer",
         qwen_timeout_seconds=90,

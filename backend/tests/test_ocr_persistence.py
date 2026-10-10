@@ -172,3 +172,67 @@ def test_duplicate_publication_is_immutable_and_ocr_transaction_rolls_back(ocr_s
     with Session(engine) as session:
         assert session.get(OcrResultRow, rolled_back.id) is None
     assert results[0].created_at <= datetime.now(UTC)
+
+
+def test_qwen_reads_committed_ocr_after_failure_and_runtime_restart(ocr_setup):
+    from test_qwen import envelope, profile
+
+    from app.modules.inference.qwen import QwenProvider
+    from app.modules.recognition.model import ModelFailure
+    from app.runtime.qwen_cli import load_input
+
+    container, settings, engine, page, snapshot = ocr_setup
+    saved = container.ocr_result_store().save(
+        page, snapshot, OcrText("61:01:1234567:8 123,45", "text/plain", 1, uuid4())
+    )
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        with engine.connect() as connection:
+            count = connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                    "AND pid<>pg_backend_pid() AND state IN ('active', 'idle in transaction') "
+                    "AND xact_start IS NOT NULL"
+                )
+            ).scalar_one()
+            assert count == 0
+        if len(calls) == 1:
+            return httpx.Response(503, text="PRIVATE-SERVICE-BODY")
+        return httpx.Response(200, json=envelope())
+
+    async def analyze(current):
+        prepared = load_input(
+            current, page.source.file_version_id, ocr_result_id=saved.id, page=None
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            async with QwenProvider(
+                profile(),
+                key="separate-key",
+                auth_header="Authorization",
+                auth_scheme="Bearer",
+                client=http,
+            ) as model:
+                return await model.analyze(prepared, model.profile, uuid4())
+
+    with pytest.raises(ModelFailure) as caught:
+        asyncio.run(analyze(container))
+    assert caught.value.retryable and caught.value.provider == "qwen"
+    container.close()
+    restarted = AppContainer(settings)
+    try:
+        result = asyncio.run(analyze(restarted))
+        evidence = next(v for v in result.fragments[0].fields if v.field_id == "area").evidence[0]
+        assert evidence.ocr_result_id == saved.id
+        assert evidence.location.file_version_id == page.source.file_version_id
+        assert evidence.location.page == page.page
+        assert restarted.ocr_result_store().find(page, snapshot).id == saved.id
+        with Session(engine) as session:
+            assert len(session.scalars(select(OcrResultRow)).all()) == 1
+        assert len(calls) == 2
+        assert all(call.url.path == "/v1/chat/completions" for call in calls)
+        with pytest.raises(ValueError):
+            load_input(restarted, uuid4(), ocr_result_id=saved.id, page=None)
+    finally:
+        restarted.close()
