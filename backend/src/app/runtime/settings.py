@@ -31,8 +31,18 @@ class Settings(BaseSettings):
 
     model_provider: Literal["external", "local"] = "local"
     local_base_url: str = "http://ollama:11434"
-    local_model: str = "qwen3-vl:4b-instruct"
+    local_model: str = "qwen3-vl:2b-instruct"
     local_timeout_seconds: int = Field(default=300, gt=0)
+    local_context_window_size: int = Field(default=16384, ge=2048)
+    local_max_output_tokens: int = Field(default=2048, gt=0)
+    local_max_input_bytes: int = Field(default=12_000_000, gt=0)
+    local_max_response_bytes: int = Field(default=4_000_000, gt=0)
+    local_num_threads: int = Field(default=6, ge=1)
+    local_keep_alive_seconds: int = Field(default=30, ge=0)
+    local_image_max_side: int = Field(default=1280, ge=256, le=4096)
+    local_model_digest: (
+        Annotated[str, StringConstraints(pattern=r"^sha256:[a-f0-9]{64}$")] | None
+    ) = None
     olmocr_base_url: str = "https://ocr.ilons.ru"
     olmocr_api_token: SecretStr = SecretStr("")
     olmocr_timeout_seconds: int = Field(default=300, gt=0)
@@ -60,6 +70,11 @@ class Settings(BaseSettings):
     @field_validator("qwen_auth_header", "qwen_timeout_seconds", mode="before")
     @classmethod
     def unset_optional_connection_field(cls, value):
+        return None if value == "" else value
+
+    @field_validator("local_model_digest", mode="before")
+    @classmethod
+    def unset_local_digest(cls, value):
         return None if value == "" else value
 
     @model_validator(mode="after")
@@ -96,6 +111,8 @@ class Settings(BaseSettings):
         else:
             if not self.local_base_url or not self.local_model:
                 raise ValueError("Local profile requires Ollama address and model")
+            if self.local_max_output_tokens >= self.local_context_window_size:
+                raise ValueError("Local output budget must fit inside the context window")
             addresses = [self.local_base_url]
         for address in addresses:
             parsed = urlsplit(address)

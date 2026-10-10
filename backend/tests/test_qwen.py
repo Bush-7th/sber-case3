@@ -489,7 +489,10 @@ def test_multiple_sources_cannot_claim_unsupported_value_and_guarantor_is_separa
         "classification_evidence": [quote("1234567890")],
         "fields": fields,
     }
-    request = ModelRequest((source("1234567890"), source("0987654321", id="source-2")))
+    fields["applicant_inn"]["evidence"] = [quote("ИНН заявителя 0987654321", "source-2")]
+    request = ModelRequest(
+        (source("1234567890"), source("ИНН заявителя 0987654321", id="source-2"))
+    )
     _, results = validate_extraction(json.dumps({"fragments": [fragment]}), request, uuid4())
     facts = {f.field_id: f for f in results[0].fields}
     assert facts["guarantor_inn"].subject_role == "guarantor"

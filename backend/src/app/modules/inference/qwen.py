@@ -199,6 +199,8 @@ class QwenProvider:
     ) -> ModelAnalysis:
         if profile != self.profile:
             raise QwenFailure("qwen_profile_mismatch", correlation_id)
+        if any(s.extraction_method == "vision" or s.image is not None for s in request.sources):
+            raise QwenFailure("qwen_unsupported_capability", correlation_id)
         request = ModelRequest(
             tuple(replace(s, location=s.location.model_copy(deep=True)) for s in request.sources),
             request.forced_type,

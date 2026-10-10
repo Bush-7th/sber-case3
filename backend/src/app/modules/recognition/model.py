@@ -184,6 +184,36 @@ class ExtractionPayload(ModelDTO):
     fragments: list[Fragment] = Field(min_length=1, max_length=200)
 
 
+class ClassificationPayload(ModelDTO):
+    fragments: list[FragmentBase] = Field(min_length=1, max_length=200)
+
+
+class VisualTranscript(ModelDTO):
+    text: str = Field(repr=False)
+
+
+FIELD_MODELS = {
+    "application": ApplicationFields,
+    "consent": ConsentFields,
+    "certificate": CertificateFields,
+    "presentation": PresentationFields,
+    "cost_justification": CostFields,
+    "bank_statement": BankFields,
+    "property_document": PropertyFields,
+    "guarantee_letter": GuaranteeFields,
+    "gims_declaration": GimsFields,
+}
+
+
+def local_schema_hash() -> str:
+    schemas = {
+        "classification": ClassificationPayload.model_json_schema(),
+        "transcription": VisualTranscript.model_json_schema(),
+        "extraction": extraction_schema(),
+    }
+    return sha256(json.dumps(schemas, sort_keys=True).encode()).hexdigest()
+
+
 def extraction_schema() -> dict:
     return ExtractionPayload.model_json_schema()
 
@@ -197,15 +227,22 @@ class PreparedSource:
     id: str
     location: SourceLocation
     text: str = field(repr=False)
-    extraction_method: Literal["native", "ocr"] = "native"
+    extraction_method: Literal["native", "ocr", "vision"] = "native"
     ocr_result_id: UUID | None = None
     preparation_profile: str = "native-text-v1"
+    image: bytes | None = field(default=None, repr=False)
+    media_type: Literal["image/png", "image/jpeg"] | None = None
 
     def __post_init__(self):
-        if not self.id or not self.text.strip() or not self.preparation_profile:
-            raise ValueError("Model source requires an ID and prepared text")
-        if self.extraction_method not in {"native", "ocr"}:
-            raise ValueError("Text model sources must be native or saved OCR")
+        if not self.id or not self.preparation_profile:
+            raise ValueError("Model source requires an ID and preparation profile")
+        if self.extraction_method not in {"native", "ocr", "vision"}:
+            raise ValueError("Unsupported source extraction method")
+        if self.extraction_method == "vision":
+            if not self.image or self.media_type not in {"image/png", "image/jpeg"}:
+                raise ValueError("Vision requires original prepared image bytes and media type")
+        elif not self.text.strip() or self.image is not None or self.media_type is not None:
+            raise ValueError("Text sources require prepared text without image bytes")
         if (self.extraction_method == "ocr") != (self.ocr_result_id is not None):
             raise ValueError("OCR source must reference its saved result")
 
@@ -239,6 +276,25 @@ class PinnedModelProfile:
 
 
 @dataclass(frozen=True)
+class LocalModelProfile(PinnedModelProfile):
+    model_digest: str
+    server_version: str
+    num_threads: int
+    keep_alive_seconds: int
+    vision: bool
+
+
+@dataclass(frozen=True)
+class ModelCall:
+    stage: Literal["transcribing", "classifying", "extracting"]
+    duration_ms: int
+    input_sha256: str
+    output_sha256: str
+    prompt_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
 class ModelInvocation:
     id: UUID
     correlation_id: UUID
@@ -248,6 +304,7 @@ class ModelInvocation:
     output_sha256: str
     service_request_id: str | None = None
     preparation_profiles: tuple[str, ...] = ()
+    calls: tuple[ModelCall, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -264,6 +321,7 @@ class ModelAnalysis:
     invocation: ModelInvocation
     # Retain the validated machine response for immutable persistence by M05 in INT01.
     payload: ExtractionPayload = field(repr=False)
+    prepared_sources: tuple[PreparedSource, ...] = field(default=(), repr=False)
 
 
 class ModelFailure(Exception):

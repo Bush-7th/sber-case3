@@ -5,9 +5,19 @@ from app.modules.assets.ocr_persistence import PostgresOcrResultStore
 from app.modules.identity.domain import AccessPolicy, ResolvedSession
 from app.modules.identity.persistence import SqlIdentityRepository
 from app.modules.identity.service import IdentityService, IssuedSession
+from app.modules.inference.ollama import (
+    PROMPT_VERSION as LOCAL_PROMPT_VERSION,
+)
+from app.modules.inference.ollama import OllamaClient, OllamaProvider, local_prompt_hash
 from app.modules.inference.olmocr import OlmOcrClient
 from app.modules.inference.qwen import PROMPT_VERSION, QwenProvider, prompt_hash
-from app.modules.recognition.model import PinnedModelProfile, schema_hash
+from app.modules.recognition.model import (
+    DocumentModelPort,
+    LocalModelProfile,
+    PinnedModelProfile,
+    local_schema_hash,
+    schema_hash,
+)
 from app.runtime.database import SqlAlchemyUnitOfWork, build_engine
 from app.runtime.settings import ConfigurationError, Settings
 
@@ -42,6 +52,50 @@ def build_qwen_provider(settings: Settings) -> QwenProvider:
         auth_header=settings.qwen_auth_header,
         auth_scheme=settings.qwen_auth_scheme,
     )
+
+
+async def build_ollama_provider(settings: Settings) -> OllamaProvider:
+    from uuid import uuid4
+
+    client = OllamaClient(
+        settings.local_base_url,
+        timeout_seconds=settings.local_timeout_seconds,
+        max_response_bytes=settings.local_max_response_bytes,
+    )
+    try:
+        model = await client.inspect_model(
+            settings.local_model, uuid4(), settings.local_model_digest
+        )
+        profile = LocalModelProfile(
+            provider="local",
+            base_url=settings.local_base_url,
+            model=model.model,
+            generation_path="/api/chat",
+            api_format="ollama-chat",
+            prompt_version=LOCAL_PROMPT_VERSION,
+            prompt_hash=local_prompt_hash(),
+            schema_hash=local_schema_hash(),
+            timeout_seconds=settings.local_timeout_seconds,
+            max_output_tokens=settings.local_max_output_tokens,
+            context_window_size=settings.local_context_window_size,
+            max_input_bytes=settings.local_max_input_bytes,
+            max_response_bytes=settings.local_max_response_bytes,
+            model_digest=model.digest,
+            server_version=model.server_version,
+            num_threads=settings.local_num_threads,
+            keep_alive_seconds=settings.local_keep_alive_seconds,
+            vision=model.vision,
+        )
+        return OllamaProvider(profile, client)
+    except BaseException:
+        await client.aclose()
+        raise
+
+
+async def build_document_model(settings: Settings) -> DocumentModelPort:
+    if settings.model_provider == "local":
+        return await build_ollama_provider(settings)
+    return build_qwen_provider(settings)
 
 
 def build_ocr_client(settings: Settings) -> OlmOcrClient:
@@ -90,6 +144,9 @@ class AppContainer:
 
     def create_qwen_provider(self) -> QwenProvider:
         return build_qwen_provider(self.settings)
+
+    async def create_document_model(self) -> DocumentModelPort:
+        return await build_document_model(self.settings)
 
     def ocr_result_store(self) -> PostgresOcrResultStore:
         return PostgresOcrResultStore(self.session_factory)
