@@ -108,6 +108,14 @@ services:
       retries: 5
     restart: unless-stopped
 
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.runtime.worker"]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:0.12.10@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6
     profiles: [local]

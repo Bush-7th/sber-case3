@@ -192,8 +192,9 @@ class OllamaClient:
         if not isinstance(server, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", server):
             raise LocalModelFailure("local_invalid_response", correlation_id)
         if model.startswith("qwen3-vl:") and tuple(map(int, server.split("."))) < (0, 12, 7):
-            raise LocalModelFailure("local_unsupported_capability", correlation_id,
-                                    reason="unsupported_server_version")
+            raise LocalModelFailure(
+                "local_unsupported_capability", correlation_id, reason="unsupported_server_version"
+            )
         return LocalModelInfo(model, digest, server, "vision" in capabilities)
 
 

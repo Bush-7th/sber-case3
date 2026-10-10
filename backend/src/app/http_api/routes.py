@@ -8,6 +8,13 @@ from fastapi.security import APIKeyCookie, APIKeyHeader
 
 from app.http_api import schemas as s
 from app.http_api.access import runtime
+from app.runtime.application import ApplicationService
+
+
+def service(request: Request) -> ApplicationService:
+    return ApplicationService(
+        runtime(request), request.state.session.actor, request.state.correlation_id
+    )
 
 
 class ContractUnavailable(Exception):
@@ -85,8 +92,10 @@ def delete_session(request: Request, csrf_token: CsrfToken) -> Response:
 
 
 @protected.get("/programs", response_model=s.Page[s.ProgramSummary], operation_id="list_programs")
-async def list_programs(limit: Limit = 20, offset: Offset = 0) -> s.Page[s.ProgramSummary]:
-    unavailable()
+async def list_programs(
+    request: Request, limit: Limit = 20, offset: Offset = 0
+) -> s.Page[s.ProgramSummary]:
+    return service(request).programs(limit, offset)
 
 
 @protected.get(
@@ -95,16 +104,26 @@ async def list_programs(limit: Limit = 20, offset: Offset = 0) -> s.Page[s.Progr
     operation_id="list_program_versions",
 )
 async def list_program_versions(
+    request: Request,
     program_id: UUID,
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> s.Page[s.ProgramVersion]:
-    unavailable()
+    return service(request).list("version", limit, offset, program_id)
 
 
 @protected.get("/packages", response_model=s.Page[s.PackageSummary], operation_id="list_packages")
-async def list_packages(limit: Limit = 20, offset: Offset = 0) -> s.Page[s.PackageSummary]:
-    unavailable()
+async def list_packages(
+    request: Request, limit: Limit = 20, offset: Offset = 0
+) -> s.Page[s.PackageSummary]:
+    value = service(request).list("package", limit, offset)
+    value["items"] = [
+        s.PackageSummary.model_validate(
+            {k: v for k, v in item.items() if k in s.PackageSummary.model_fields}
+        )
+        for item in value["items"]
+    ]
+    return value
 
 
 @protected.post(
@@ -113,8 +132,10 @@ async def list_packages(limit: Limit = 20, offset: Offset = 0) -> s.Page[s.Packa
     status_code=201,
     operation_id="create_package",
 )
-async def create_package(body: s.PackageCreate, csrf_token: CsrfToken) -> s.PackageDetail:
-    unavailable()
+async def create_package(
+    request: Request, body: s.PackageCreate, csrf_token: CsrfToken
+) -> s.PackageDetail:
+    return service(request).create_package(body)
 
 
 @protected.get(
@@ -122,8 +143,8 @@ async def create_package(body: s.PackageCreate, csrf_token: CsrfToken) -> s.Pack
     response_model=s.PackageDetail,
     operation_id="get_package",
 )
-async def get_package(package_id: UUID) -> s.PackageDetail:
-    unavailable()
+async def get_package(request: Request, package_id: UUID) -> s.PackageDetail:
+    return service(request).get("package", package_id)
 
 
 @protected.post(
@@ -133,13 +154,27 @@ async def get_package(package_id: UUID) -> s.PackageDetail:
     operation_id="upload_files",
 )
 async def upload_files(
+    request: Request,
     package_id: UUID,
     files: Annotated[list[UploadFile], File(min_length=1)],
     expected_revision: Annotated[int, Form(ge=0)],
     csrf_token: CsrfToken,
     idempotency_key: IdempotencyKey,
 ) -> s.UploadResult:
-    unavailable()
+    svc = service(request)
+    svc.get("package", package_id)
+    contents = []
+    total = 0
+    for file in files:
+        content = await file.read(runtime(request).settings.olmocr_max_input_bytes + 1)
+        total += len(content)
+        if total > 100_000_000:
+            from app.runtime.application import CommandError
+
+            raise CommandError(413, "upload_too_large", "Пакет загрузки превышает 100 МБ.")
+        contents.append((file.filename or "document", content))
+        await file.close()
+    return svc.upload(package_id, expected_revision, idempotency_key, contents)
 
 
 @protected.patch(
@@ -148,11 +183,12 @@ async def upload_files(
     operation_id="update_configuration",
 )
 async def update_configuration(
+    request: Request,
     package_id: UUID,
     body: s.ConfigurationUpdate,
     csrf_token: CsrfToken,
 ) -> s.RunRequested:
-    unavailable()
+    return service(request).configuration(package_id, body)
 
 
 @protected.post(
@@ -162,12 +198,13 @@ async def update_configuration(
     operation_id="create_verification_run",
 )
 async def create_verification_run(
+    request: Request,
     package_id: UUID,
     body: s.VerificationCreate,
     csrf_token: CsrfToken,
     idempotency_key: IdempotencyKey,
 ) -> s.RunRequested:
-    unavailable()
+    return service(request).start(package_id, body, idempotency_key)
 
 
 @protected.get(
@@ -175,8 +212,10 @@ async def create_verification_run(
     response_model=s.VerificationRun,
     operation_id="get_verification_run",
 )
-async def get_verification_run(run_id: UUID) -> s.VerificationRun:
-    unavailable()
+async def get_verification_run(request: Request, run_id: UUID) -> s.VerificationRun:
+    value = service(request).get("run", run_id)
+    value = {k: v for k, v in value.items() if not k.startswith("_")}
+    return value
 
 
 @protected.get(
@@ -194,8 +233,9 @@ async def get_verification_run(run_id: UUID) -> s.VerificationRun:
         }
     },
 )
-async def download_file(file_id: UUID) -> Response:
-    unavailable()
+async def download_file(request: Request, file_id: UUID) -> Response:
+    content, media, headers = service(request).content(file_id)
+    return Response(content=content, media_type=media, headers=headers)
 
 
 @protected.get(
@@ -212,8 +252,12 @@ async def download_file(file_id: UUID) -> Response:
         }
     },
 )
-async def get_file_preview(file_id: UUID, page: Annotated[int, Query(ge=1)] = 1) -> Response:
-    unavailable()
+async def get_file_preview(
+    request: Request, file_id: UUID, page: Annotated[int, Query(ge=1)] = 1
+) -> Response:
+    content, media, headers = service(request).content(file_id, True, page)
+    headers.pop("Content-Disposition", None)
+    return Response(content=content, media_type=media, headers=headers)
 
 
 @protected.get(
@@ -222,12 +266,13 @@ async def get_file_preview(file_id: UUID, page: Annotated[int, Query(ge=1)] = 1)
     operation_id="get_sheet",
 )
 async def get_sheet(
+    request: Request,
     file_id: UUID,
     sheet: str,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
     offset: Offset = 0,
 ) -> s.SheetData:
-    unavailable()
+    return service(request).sheet(file_id, sheet, limit, offset)
 
 
 @protected.patch(
@@ -236,11 +281,12 @@ async def get_sheet(
     operation_id="update_document_type",
 )
 async def update_document_type(
+    request: Request,
     document_id: UUID,
     body: s.TypeUpdate,
     csrf_token: CsrfToken,
 ) -> s.RunRequested:
-    unavailable()
+    return service(request).document_type(document_id, body)
 
 
 @protected.patch(
@@ -249,6 +295,7 @@ async def update_document_type(
     operation_id="update_document_grouping",
 )
 async def update_document_grouping(
+    request: Request,
     document_id: UUID,
     body: s.GroupingUpdate,
     csrf_token: CsrfToken,
@@ -263,12 +310,13 @@ async def update_document_grouping(
     operation_id="create_decision",
 )
 async def create_decision(
+    request: Request,
     package_id: UUID,
     body: s.DecisionCreate,
     csrf_token: CsrfToken,
     idempotency_key: IdempotencyKey,
 ) -> s.ApplicationDecision:
-    unavailable()
+    return service(request).decision(package_id, body, idempotency_key)
 
 
 @protected.get(
@@ -278,10 +326,18 @@ async def create_decision(
     tags=["administrator"],
 )
 async def list_program_drafts(
+    request: Request,
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> s.Page[s.ProgramDraftSummary]:
-    unavailable()
+    value = service(request).list("draft", limit, offset)
+    value["items"] = [
+        s.ProgramDraftSummary.model_validate(
+            {k: v for k, v in item.items() if k in s.ProgramDraftSummary.model_fields}
+        )
+        for item in value["items"]
+    ]
+    return value
 
 
 @protected.post(
@@ -291,8 +347,10 @@ async def list_program_drafts(
     operation_id="create_program_draft",
     tags=["administrator"],
 )
-async def create_program_draft(body: s.ProgramDraftCreate, csrf_token: CsrfToken) -> s.ProgramDraft:
-    unavailable()
+async def create_program_draft(
+    request: Request, body: s.ProgramDraftCreate, csrf_token: CsrfToken
+) -> s.ProgramDraft:
+    return service(request).draft_create(body)
 
 
 @protected.get(
@@ -301,8 +359,8 @@ async def create_program_draft(body: s.ProgramDraftCreate, csrf_token: CsrfToken
     operation_id="get_program_draft",
     tags=["administrator"],
 )
-async def get_program_draft(draft_id: UUID) -> s.ProgramDraft:
-    unavailable()
+async def get_program_draft(request: Request, draft_id: UUID) -> s.ProgramDraft:
+    return service(request).get("draft", draft_id)
 
 
 @protected.patch(
@@ -312,11 +370,12 @@ async def get_program_draft(draft_id: UUID) -> s.ProgramDraft:
     tags=["administrator"],
 )
 async def update_program_draft(
+    request: Request,
     draft_id: UUID,
     body: s.ProgramDraftUpdate,
     csrf_token: CsrfToken,
 ) -> s.ProgramDraft:
-    unavailable()
+    return service(request).draft_update(draft_id, body)
 
 
 @protected.patch(
@@ -326,12 +385,13 @@ async def update_program_draft(
     tags=["administrator"],
 )
 async def update_rule(
+    request: Request,
     draft_id: UUID,
     rule_id: str,
     body: s.RuleUpdate,
     csrf_token: CsrfToken,
 ) -> s.ProgramDraft:
-    unavailable()
+    return service(request).draft_update(draft_id, body, rule_id)
 
 
 @protected.post(
@@ -341,11 +401,12 @@ async def update_rule(
     tags=["administrator"],
 )
 async def validate_program_draft(
+    request: Request,
     draft_id: UUID,
     body: s.RevisionCommand,
     csrf_token: CsrfToken,
 ) -> s.DraftValidation:
-    unavailable()
+    return service(request).draft_validate(draft_id, body)
 
 
 @protected.post(
@@ -356,12 +417,13 @@ async def validate_program_draft(
     tags=["administrator"],
 )
 async def publish_program_draft(
+    request: Request,
     draft_id: UUID,
     body: s.RevisionCommand,
     csrf_token: CsrfToken,
     idempotency_key: IdempotencyKey,
 ) -> s.ProgramVersion:
-    unavailable()
+    return service(request).draft_publish(draft_id, body, idempotency_key)
 
 
 @protected.get(
@@ -370,11 +432,14 @@ async def publish_program_draft(
     operation_id="list_audit",
 )
 async def list_audit(
+    request: Request,
     package_id: UUID,
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> s.Page[s.AuditEvent]:
-    unavailable()
+    svc = service(request)
+    svc.get("package", package_id)
+    return svc.list("audit", limit, offset, package_id)
 
 
 router.include_router(protected)

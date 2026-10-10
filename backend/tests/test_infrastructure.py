@@ -134,7 +134,7 @@ def test_migration_roundtrip_and_metadata_match(database_url):
             config = migration_config()
             config.attributes["connection"] = connection
             context = MigrationContext.configure(connection)
-            assert context.get_current_revision() == "0002_ocr_results"
+            assert context.get_current_revision() == "0003_workflow"
             assert compare_metadata(context, Base.metadata) == []
             assert (
                 connection.execute(
@@ -189,7 +189,7 @@ def test_secure_session_cookie_is_set_and_removed_on_https(configured):
     with TestClient(create_app(settings), base_url="https://testserver") as client:
         response = login(client)
         assert "Secure" in response.headers["set-cookie"]
-        assert client.get("/api/v1/packages").status_code == 501
+        assert client.get("/api/v1/packages").status_code == 200
         deleted = client.delete(
             "/api/v1/sessions", headers={"X-CSRF-Token": response.json()["csrf_token"]}
         )
@@ -215,8 +215,8 @@ def test_direct_urls_roles_csrf_and_unimplemented_business(configured):
             client.post("/api/v1/packages/not-a-uuid/files", content=b"invalid").status_code == 401
         )
         specialist = login(client)
-        assert client.get(paths[0]).status_code == 501
-        assert client.get(paths[1]).status_code == 501
+        assert client.get(paths[0]).status_code == 200
+        assert client.get(paths[1]).status_code == 404
         assert client.get(paths[-1]).status_code == 403
         assert client.post("/api/v1/packages", json={}).status_code == 403
         assert (
@@ -228,7 +228,7 @@ def test_direct_urls_roles_csrf_and_unimplemented_business(configured):
             == 422
         )
         admin = login(client, "administrator", ADMIN_PASSWORD)
-        assert client.get(paths[-1]).status_code == 501
+        assert client.get(paths[-1]).status_code == 200
         for path in paths[:-1]:
             assert client.get(path).status_code == 403
         assert (
@@ -344,7 +344,7 @@ def test_restart_preserves_sessions_and_missing_dependencies_preserve_liveness(c
     with TestClient(create_app(settings)) as second:
         assert (
             second.get("/api/v1/packages", headers={"Cookie": "session=" + cookie}).status_code
-            == 501
+            == 200
         )
     broken = settings.model_copy(
         update={

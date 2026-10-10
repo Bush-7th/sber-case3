@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.identity.domain import Role
 from app.modules.identity.persistence import UserRow
+from app.runtime.catalog_seed import seed_catalog
 from app.runtime.database import build_engine
 from app.runtime.settings import ConfigurationError, Settings
 
@@ -94,6 +95,8 @@ def bootstrap(settings: Settings) -> None:
                         created_at=datetime.now(UTC),
                     )
                 )
+            session.flush()
+            seed_catalog(session)
     finally:
         engine.dispose()
 

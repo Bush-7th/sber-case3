@@ -26,3 +26,5 @@ uv run --project backend uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-
 ```
 
 Без настроек БД доступны документация и `/health/live`; вход требует миграций и bootstrap по [инструкции](docs/runtime.md). Схема: `http://127.0.0.1:8000/openapi.json`, Swagger: `http://127.0.0.1:8000/docs`. Подготовка Node, генерация клиента и проверки описаны в документе контракта.
+
+Серверный API для интерфейса B, проверенный сценарий и ограничения: [docs/backend-integration.md](docs/backend-integration.md).
