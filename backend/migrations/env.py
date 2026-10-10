@@ -2,6 +2,7 @@ from alembic import context
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
+from app.modules.assets.ocr_persistence import FileVersionRow, OcrResultRow  # noqa: F401
 from app.modules.assets.persistence import BlobReferenceRow, BlobRow  # noqa: F401
 from app.modules.identity.persistence import RoleRow, SessionRow, UserRow  # noqa: F401
 from app.runtime.database import Base

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     olmocr_base_url: str = "https://ocr.ilons.ru"
     olmocr_api_token: SecretStr = SecretStr("")
     olmocr_timeout_seconds: int = Field(default=300, gt=0)
+    olmocr_profile_revision: str = Field(default="1", min_length=1, max_length=100)
+    olmocr_max_input_bytes: int = Field(default=50_000_000, gt=0)
+    ocr_preparation_max_pages: int = Field(default=200, gt=0)
     qwen_base_url: str = "https://llm.ilons.ru"
     qwen_model: str = "Qwen/Qwen3.8-27B"
     qwen_context_window_size: int = Field(default=262000, gt=0)
@@ -45,6 +48,9 @@ class Settings(BaseSettings):
     qwen_auth_header: HeaderName | None = None
     qwen_auth_scheme: str | None = None
     qwen_timeout_seconds: int | None = Field(default=None, gt=0)
+    qwen_max_output_tokens: int = Field(default=8192, gt=0)
+    qwen_max_input_bytes: int = Field(default=750_000, gt=0)
+    qwen_max_response_bytes: int = Field(default=4_000_000, gt=0)
 
     bootstrap_specialist_username: str = "specialist"
     bootstrap_specialist_password: SecretStr = SecretStr("")
@@ -72,7 +78,17 @@ class Settings(BaseSettings):
                 raise ValueError("External profile requires a confirmed Qwen contract and key")
             if self.qwen_auth_scheme is None:
                 raise ValueError("Confirm Qwen auth scheme; an explicit empty string means raw key")
-            if not self.qwen_generation_path.startswith("/"):
+            if self.qwen_api_format != "openai-chat":
+                raise ValueError("Unsupported Qwen API format")
+            path = urlsplit(self.qwen_generation_path)
+            if (
+                not self.qwen_generation_path.startswith("/")
+                or path.netloc
+                or path.query
+                or path.fragment
+                or "\r" in self.qwen_generation_path
+                or "\n" in self.qwen_generation_path
+            ):
                 raise ValueError("Qwen generation path must be an absolute API path")
             if "\r" in self.qwen_auth_scheme or "\n" in self.qwen_auth_scheme:
                 raise ValueError("Invalid Qwen authorization scheme")
