@@ -14,7 +14,7 @@ const ast = await openapiTS(schema, {
 const generated = "// Generated from backend/openapi.json. Run npm run api:generate.\n" + astToString(ast);
 if (process.argv.includes("--check")) {
   const existing = await readFile(destination, "utf8").catch(() => "");
-  if (existing !== generated) {
+  if (existing.replace(/\r\n/g, "\n") !== generated) {
     throw new Error("API types are stale. Regenerate OpenAPI, then run npm run api:generate.");
   }
   console.log("TypeScript API types match OpenAPI");

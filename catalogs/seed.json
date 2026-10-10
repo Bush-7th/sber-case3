@@ -1,0 +1,57 @@
+{
+  "schema_version": "proposal-1",
+  "source": "docs/specs.md sections 1.2-1.3; 2026-10-10",
+  "document_types": [
+    {"id":"application","name":"Заявление","extension":false,"fields":["organization","inn","ogrn","requested_amount","date","signatory"],"minimum":["organization","inn","requested_amount","date"]},
+    {"id":"consent","name":"Согласие на обработку ПД","extension":false,"fields":["full_name","passport","date"],"minimum":["full_name","date"]},
+    {"id":"certificate","name":"Сертификат","extension":false,"fields":["number","certification_body","issue_date","valid_until"],"minimum":["number","valid_until"]},
+    {"id":"presentation","name":"Презентация","extension":false,"fields":["project_name","description"],"minimum":["project_name"]},
+    {"id":"cost_justification","name":"Обоснование затрат","extension":false,"fields":["total_expenses","own_funds","expense_items"],"minimum":["total_expenses","own_funds"],"additional_explicit_fields":["requested_subsidy_amount","applicant_inn"]},
+    {"id":"bank_statement","name":"Банковская выписка","extension":false,"fields":["organization","account_number","balance","date"],"minimum":["organization","balance","date"]},
+    {"id":"property_document","name":"Документ на недвижимость","extension":false,"fields":["cadastral_number","area","purpose","address"],"minimum":["cadastral_number"]},
+    {"id":"guarantee_letter","name":"Гарантийное письмо","extension":false,"fields":["organization","amount","date","signatory"],"minimum":["organization","amount","date"],"subject_role":"guarantor"},
+    {"id":"gims_declaration","name":"Декларация ГИМС","extension":true,"fields":["valid_until"],"minimum":[],"needs_clarification":true}
+  ],
+  "additional_explicit_fields": {"applicant_inn":{"subject_role":"applicant","only_if_present":true}},
+  "programs": [
+    {"id":"innovation","name":"Инновационный проект","description":"Предварительная проверка пакета инновационного проекта","requirements":[
+      {"document_type":"application","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"consent","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"presentation","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"cost_justification","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"bank_statement","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"guarantee_letter","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"certificate","kind":"conditional","count":1,"predicate":{"field":"certificate_required","operator":"is_true"},"severity":"warning"}
+    ],"rule_sets":["common","certificate","presentation"]},
+    {"id":"beach","name":"Обустройство пляжа","description":"Предварительная проверка пакета обустройства пляжа","requirements":[
+      {"document_type":"application","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"consent","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"cost_justification","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"bank_statement","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"property_document","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"gims_declaration","kind":"conditional","count":1,"predicate":{"field":"gims_required","operator":"is_true"},"severity":"warning"}
+    ],"rule_sets":["common","property","gims"]},
+    {"id":"modernization","name":"Модернизация производства","description":"Предварительная проверка пакета модернизации производства","requirements":[
+      {"document_type":"application","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"consent","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"cost_justification","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"bank_statement","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"guarantee_letter","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"property_document","kind":"required","count":1,"predicate":null,"severity":"error"},
+      {"document_type":"certificate","kind":"conditional","count":1,"predicate":{"field":"certificate_required","operator":"is_true"},"severity":"warning"}
+    ],"rule_sets":["common","certificate","property"]}
+  ],
+  "rule_templates": [
+    {"id":"minimum-fields","name":"Минимум полей логического документа","family":"required_fields","operands":[],"parameters":{"fields":"from_document_type_minimum"},"severity":"attention","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common","scope":"each_document_unit"},
+    {"id":"application-date","name":"Дата заявления не в будущем","family":"date_compare","operands":[{"document_type":"application","field":"date","subject_role":"applicant"}],"parameters":{"operator":"lte","reference":"reference_date"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common"},
+    {"id":"other-dates","name":"Даты документов не в будущем","family":"date_compare","operands":[],"parameters":{"operator":"lte","reference":"reference_date"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common","expand_fields":["consent.date","bank_statement.date","guarantee_letter.date","certificate.issue_date"]},
+    {"id":"inn-format","name":"Формат ИНН","family":"matches_regex","operands":[{"document_type":"application","field":"inn","subject_role":"applicant"}],"parameters":{"pattern":"(?:[0-9]{10}|[0-9]{12})"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common"},
+    {"id":"own-funds","name":"Доля собственных средств не менее 50%","family":"ratio_gte","operands":[{"document_type":"cost_justification","field":"own_funds","subject_role":"applicant"},{"document_type":"cost_justification","field":"total_expenses","subject_role":"applicant"}],"parameters":{"factor":"0.50"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common"},
+    {"id":"requested-amount","name":"Согласованность запрашиваемой суммы","family":"amount_equal","operands":[{"document_type":"application","field":"requested_amount","subject_role":"applicant"},{"document_type":"cost_justification","field":"requested_subsidy_amount","subject_role":"applicant"}],"parameters":{},"severity":"error","on_missing":"UNKNOWN","needs_clarification":true,"rule_set":"common","note":"Второй операнд только при явном наличии; точная привязка требует подтверждения организатора"},
+    {"id":"applicant-inn","name":"Согласованность ИНН заявителя","family":"same_subject_value","operands":[{"document_type":"application","field":"inn","subject_role":"applicant"}],"parameters":{"subject_role":"applicant"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"common","scope":"all_explicit_applicant_inn_observations"},
+    {"id":"presentation-content","name":"Содержимое презентации","family":"non_empty","operands":[{"document_type":"presentation","field":"description","subject_role":null}],"parameters":{},"severity":"attention","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"presentation"},
+    {"id":"certificate-validity","name":"Срок сертификата не истёк","family":"date_compare","operands":[{"document_type":"certificate","field":"valid_until","subject_role":null}],"parameters":{"operator":"gte","reference":"reference_date"},"severity":"error","on_missing":"UNKNOWN","needs_clarification":false,"rule_set":"certificate"},
+    {"id":"cadastral-format","name":"Формат кадастрового номера","family":"matches_regex","operands":[{"document_type":"property_document","field":"cadastral_number","subject_role":null}],"parameters":{"pattern":""},"severity":"attention","on_missing":"UNKNOWN","needs_clarification":true,"rule_set":"property","note":"Образцы и точная маска отсутствуют; UNKNOWN до настройки"},
+    {"id":"gims-validity","name":"Срок декларации ГИМС","family":"date_compare","operands":[{"document_type":"gims_declaration","field":"valid_until","subject_role":null}],"parameters":{"operator":"gte","reference":"reference_date"},"severity":"attention","on_missing":"UNKNOWN","needs_clarification":true,"rule_set":"gims"}
+  ]
+}

@@ -1,20 +1,42 @@
 {
-  "name": "sber-case3-frontend",
-  "version": "0.1.0",
+  "name": "sber-case3-workbench",
   "private": true,
+  "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "npm run test:unit && npm run test:contract",
+    "test:e2e": "playwright test",
     "api:generate": "node scripts/generate-api.mjs",
     "api:check": "node scripts/generate-api.mjs --check",
-    "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.contract.json --noEmit",
+    "test:unit": "vitest run --dir src",
+    "test:contract": "tsx --test tests/*.test.ts"
   },
-  "dependencies": { "openapi-fetch": "0.17.0" },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.1",
+    "lucide-react": "1.55.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router-dom": "7.18.4",
+    "zod": "4.6.5",
+    "openapi-fetch": "0.17.0"
+  },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "26.6.5",
     "openapi-typescript": "7.13.0",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@playwright/test": "1.64.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
   }
 }

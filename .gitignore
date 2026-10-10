@@ -25,8 +25,14 @@ htmlcov/
 node_modules/
 dist/
 *.tsbuildinfo
-
 # Editors and system files
 .DS_Store
 .idea/
 .vscode/
+coverage/
+playwright-report/
+test-results/
+*.log
+artifacts/
+*.dump
+*.zip
