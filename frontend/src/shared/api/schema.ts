@@ -1,5 +1,39 @@
 // Generated from backend/openapi.json. Run npm run api:generate.
 export interface paths {
+    "/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Liveness */
+        get: operations["liveness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readiness Endpoint */
+        get: operations["readiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -791,6 +825,15 @@ export interface components {
             target?: components["schemas"]["ResourceRef"] | null;
         };
         JsonValue: unknown;
+        /** LivenessResponse */
+        LivenessResponse: {
+            /**
+             * Status
+             * @default alive
+             * @constant
+             */
+            status: "alive";
+        };
         /** MachineReport */
         MachineReport: {
             /**
@@ -1223,6 +1266,17 @@ export interface components {
              */
             invocation_id: string;
         };
+        /** ReadinessResponse */
+        ReadinessResponse: {
+            /** Api Ready */
+            api_ready: boolean;
+            /** Pipeline Ready */
+            pipeline_ready: boolean;
+            /** Checks */
+            checks: {
+                [key: string]: "ready" | "not_ready" | "not_checked";
+            };
+        };
         /** RequirementDefinition */
         "RequirementDefinition-Input": {
             /** Id */
@@ -1597,6 +1651,55 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    liveness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LivenessResponse"];
+                };
+            };
+        };
+    };
+    readiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+            /** @description Dependencies not yet ready */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     create_session: {
         parameters: {
             query?: never;
