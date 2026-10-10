@@ -20,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.modules.identity.domain import Role
+
 DecimalString = Annotated[
     str, StringConstraints(strict=True, pattern=r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 ]
@@ -30,11 +32,6 @@ Count = Annotated[int, Field(strict=True, ge=0)]
 
 class DTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class Role(StrEnum):
-    specialist = "specialist"
-    administrator = "administrator"
 
 
 class DocumentType(StrEnum):
@@ -131,7 +128,17 @@ class UserSummary(DTO):
 
 class SessionCreate(DTO):
     username: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    password: SecretStr
+    password: SecretStr = Field(min_length=1, max_length=1024)
+
+
+class LivenessResponse(DTO):
+    status: Literal["alive"] = "alive"
+
+
+class ReadinessResponse(DTO):
+    api_ready: bool
+    pipeline_ready: bool
+    checks: dict[str, Literal["ready", "not_ready", "not_checked"]]
 
 
 class SessionResponse(DTO):
