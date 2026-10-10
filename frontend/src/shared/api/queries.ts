@@ -47,7 +47,9 @@ export function useCommand<T, V>(
     onError: async (error) => {
       if (error instanceof ApiError && error.status === 401) endSession(client);
       if (error instanceof ApiError && error.status === 409)
-        await client.invalidateQueries();
+        await client.invalidateQueries({
+          predicate: (query) => query.queryKey[0] !== "session",
+        });
     },
   });
 }

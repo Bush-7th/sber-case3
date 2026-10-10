@@ -9,6 +9,7 @@ const allowed = /\.(pdf|doc|docx|xls|xlsx|jpe?g|png)$/i;
 export function UploadPanel({ item }: { item: Package }) {
   const [files, setFiles] = useState<File[]>([]);
   const [invalid, setInvalid] = useState<string[]>([]);
+  const [duplicateNames, setDuplicateNames] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const [receipt, setReceipt] = useState<Awaited<
     ReturnType<typeof api.upload>
@@ -45,19 +46,14 @@ export function UploadPanel({ item }: { item: Package }) {
     setInvalid(
       selected.filter((f) => !allowed.test(f.name)).map((f) => f.name),
     );
-    setFiles((current) => [
-      ...current,
-      ...selected.filter(
-        (f) =>
-          allowed.test(f.name) &&
-          !current.some(
-            (old) =>
-              old.name === f.name &&
-              old.size === f.size &&
-              old.lastModified === f.lastModified,
-          ),
-      ),
-    ]);
+    const next = [...files];
+    const duplicates: string[] = [];
+    for (const file of selected.filter(f => allowed.test(f.name))) {
+      if (next.some(old => old.name === file.name)) duplicates.push(file.name);
+      else next.push(file);
+    }
+    setDuplicateNames([...new Set(duplicates)]);
+    setFiles(next);
   }
   return (
     <section className="panel">
@@ -105,6 +101,9 @@ export function UploadPanel({ item }: { item: Package }) {
           Не добавлены файлы неподдерживаемого формата: {invalid.join(", ")}
         </Notice>
       )}
+      {duplicateNames.length > 0 && <Notice tone="warning">
+        Файлы с совпадающими именами не добавлены: {duplicateNames.join(", ")}. Переименуйте их или загрузите отдельным пакетом.
+      </Notice>}
       {files.length > 0 && (
         <>
           <ul className="selected-files">

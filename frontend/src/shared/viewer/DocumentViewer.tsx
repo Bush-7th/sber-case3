@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { ExternalLink, FileSearch } from "lucide-react";
 import type { Evidence, FileCheck } from "../api/contracts";
 import { api } from "../api/client";
@@ -25,23 +25,28 @@ export function DocumentViewer({
   source: Evidence | null;
 }) {
   const [selectedId, setSelectedId] = useState(
-    source?.file_version_id ?? files[0]?.id ?? "",
+    source?.file_id ?? files[0]?.id ?? "",
   );
   const [sheetName, setSheetName] = useState(source?.sheet ?? "");
+  const [pageNumber, setPageNumber] = useState(source?.page ?? 1);
   useEffect(() => {
     if (source) {
-      setSelectedId(source.file_version_id);
+      setSelectedId(source.file_id);
       setSheetName(source.sheet ?? "");
+      setPageNumber(source.page ?? 1);
     }
   }, [source]);
-  const file = files.find((f) => f.id === selectedId) ?? files[0];
+  const file = files.find((f) => f.id === selectedId) ?? (source ? undefined : files[0]);
   const spreadsheet =
     !!file && ["xls", "xlsx"].includes(file.format.toLowerCase());
-  const activeSource = source?.file_version_id === file?.id ? source : null;
-  const sheet = useQuery({
-    queryKey: ["sheet", file?.id, sheetName],
-    queryFn: ({ signal }) => api.sheet(file!.id, sheetName || "_first", signal),
-    enabled: spreadsheet,
+  const activeSource = source?.file_version_id === file?.file_version_id ? source : null;
+  const activeSheet = sheetName || file?.sheet_names[0] || "";
+  const sheet = useInfiniteQuery({
+    queryKey: ["sheet", file?.id, file?.file_version_id, activeSheet],
+    queryFn: ({ signal, pageParam }) => api.sheet(file!.id, activeSheet, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: page => page.offset + page.cells.length < page.total ? page.offset + page.cells.length : undefined,
+    enabled: spreadsheet && !!activeSheet,
   });
   return (
     <section className="panel viewer-panel">
@@ -73,6 +78,7 @@ export function DocumentViewer({
               onChange={(e) => {
                 setSelectedId(e.target.value);
                 setSheetName("");
+                setPageNumber(1);
               }}
             >
               {files.map((f) => (
@@ -88,7 +94,7 @@ export function DocumentViewer({
               <span>
                 {activeSource.method === "ocr"
                   ? "Распознанный текст"
-                  : "Исходное содержимое"}
+                  : activeSource.method === "vision" ? "Извлечено из изображения" : "Исходное содержимое"}
               </span>
               {activeSource.quote && (
                 <blockquote>{activeSource.quote}</blockquote>
@@ -103,11 +109,12 @@ export function DocumentViewer({
           )}
           {spreadsheet ? (
             <>
+              {!activeSheet && <Notice>Имена листов появятся после подготовки таблицы.</Notice>}
               <ErrorNotice
                 error={sheet.error}
                 retry={() => void sheet.refetch()}
               />
-              {sheet.isPending ? (
+              {sheet.isPending && activeSheet ? (
                 <Loading />
               ) : (
                 sheet.data && (
@@ -115,10 +122,11 @@ export function DocumentViewer({
                     <label>
                       Лист
                       <select
-                        value={sheet.data.sheet}
+                        aria-label="Лист"
+                        value={activeSheet}
                         onChange={(e) => setSheetName(e.target.value)}
                       >
-                        {sheet.data.sheets.map((s) => (
+                        {file?.sheet_names.map((s) => (
                           <option key={s}>{s}</option>
                         ))}
                       </select>
@@ -133,23 +141,24 @@ export function DocumentViewer({
                           </tr>
                         </thead>
                         <tbody>
-                          {sheet.data.cells.map((cell) => (
+                          {sheet.data.pages.flatMap(p => p.cells).map((cell) => (
                             <tr
                               key={cell.address}
                               className={
-                                activeSource?.cell_range === cell.address
+                                activeSource?.sheet === activeSheet && activeSource?.cell_range === cell.address
                                   ? "highlighted-cell"
                                   : ""
                               }
                             >
                               <th>{cell.address}</th>
-                              <td>{cell.value ?? "Не найдено"}</td>
+                              <td>{cell.known_state === "unreadable" ? "Не прочитано" : cell.value ?? "Не найдено"}</td>
                               <td>{cell.formula ?? "—"}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
+                    {sheet.hasNextPage && <button className="button secondary compact" disabled={sheet.isFetchingNextPage} onClick={() => void sheet.fetchNextPage()}>Загрузить ещё ячейки</button>}
                     <p className="form-hint">
                       Адрес источника: {activeSource?.cell_range ?? "не выбран"}
                       . Значение без сохранённого результата формулы остаётся
@@ -161,17 +170,25 @@ export function DocumentViewer({
             </>
           ) : (
             file && (
+              <>
+              {(file.page_count ?? 0) > 1 && <label>Страница
+                <select value={Math.min(pageNumber, file.page_count ?? pageNumber)} onChange={e => setPageNumber(Number(e.target.value))}>
+                  {Array.from({ length: file.page_count! }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}
+                </select>
+              </label>}
               <iframe
                 className="document-frame"
                 title={`Просмотр ${file.name}`}
                 sandbox="allow-same-origin"
-                src={`${api.previewUrl(file.id, activeSource?.page ?? undefined)}${activeSource?.page ? `#page=${activeSource.page}` : ""}`}
+                src={api.previewUrl(file.id, Math.min(pageNumber, file.page_count ?? pageNumber))}
               />
+              </>
             )
           )}
           <p className="form-hint">
             Если превью недоступно, откройте оригинал.
           </p>
+          {!file && <Notice tone="warning">Файл выбранного источника отсутствует в этом снимке. Откройте соответствующий сохранённый запуск.</Notice>}
         </>
       )}
     </section>

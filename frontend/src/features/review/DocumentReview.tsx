@@ -14,19 +14,21 @@ function ReviewEditor({
   unit,
   item,
   close,
+  fragments,
 }: {
   unit: DocumentUnit;
   item: Package;
   close: () => void;
+  fragments: DocumentUnit["fragments"];
 }) {
   const types = useQuery({
-    queryKey: ["document-types"],
-    queryFn: ({ signal }) => api.documentTypes(signal),
+    queryKey: ["document-types", item.program_id, item.program_version_id],
+    queryFn: ({ signal }) => api.documentTypes(item.program_id, item.program_version_id, signal),
   });
   const [type, setType] = useState(unit.effective_type ?? "");
   const [reason, setReason] = useState("");
-  const [ids, setIds] = useState(unit.file_version_ids);
-  const [revision] = useState(item.input_revision);
+  const [ids, setIds] = useState(unit.fragments.map(f => f.id));
+  const [revision, setRevision] = useState(item.input_revision);
   const changeType = useCommand(
     () => api.type(unit.id, revision, type, reason.trim()),
     close,
@@ -61,20 +63,20 @@ function ReviewEditor({
       </label>
       <fieldset disabled={pending}>
         <legend>Состав логического документа</legend>
-        {item.files.map((file) => (
-          <label className="checkbox-label" key={file.id}>
+        {fragments.map((fragment) => (
+          <label className="checkbox-label" key={fragment.id}>
             <input
               type="checkbox"
-              checked={ids.includes(file.id)}
+              checked={ids.includes(fragment.id)}
               onChange={(e) =>
                 setIds(
                   e.target.checked
-                    ? [...ids, file.id]
-                    : ids.filter((id) => id !== file.id),
+                    ? [...ids, fragment.id]
+                    : ids.filter((id) => id !== fragment.id),
                 )
               }
             />
-            {file.name}
+            {item.files.find(f => f.file_version_id === fragment.source.file_version_id)?.name ?? fragment.source.file_version_id} · {sourceLabel(fragment.source)}
           </label>
         ))}
       </fieldset>
@@ -91,20 +93,24 @@ function ReviewEditor({
       <ErrorNotice
         error={types.error || changeType.error || changeGrouping.error}
       />
+      {revision !== item.input_revision && <Notice tone="warning">
+        Заявка обновилась. Сверьте тип и состав по актуальной проверке.
+        <button className="button secondary" onClick={() => { setRevision(item.input_revision); changeType.reset(); changeGrouping.reset(); }}>Сверено: использовать актуальную ревизию</button>
+      </Notice>}
       <div className="form-actions">
         <button className="button secondary" onClick={close} disabled={pending}>
           Отмена
         </button>
         <button
           className="button secondary"
-          disabled={pending || !ids.length || !reason.trim()}
+          disabled={pending || !ids.length || !reason.trim() || revision !== item.input_revision || ids.some(id => !fragments.some(f => f.id === id))}
           onClick={() => changeGrouping.mutate()}
         >
           Подтвердить состав
         </button>
         <button
           className="button primary"
-          disabled={pending || !type || !reason.trim()}
+          disabled={pending || !type || !reason.trim() || revision !== item.input_revision}
           onClick={() => changeType.mutate()}
         >
           Сохранить тип и перепроверить
@@ -118,16 +124,18 @@ export function DocumentReview({
   item,
   stale,
   onSource,
+  fragments,
 }: {
   unit: DocumentUnit;
   item: Package;
   stale: boolean;
   onSource: (source: Evidence) => void;
+  fragments: DocumentUnit["fragments"];
 }) {
   const [editing, setEditing] = useState(false);
   const types = useQuery({
-    queryKey: ["document-types"],
-    queryFn: ({ signal }) => api.documentTypes(signal),
+    queryKey: ["document-types", item.program_id, item.program_version_id],
+    queryFn: ({ signal }) => api.documentTypes(item.program_id, item.program_version_id, signal),
   });
   const typeLabel = (id: string | null) =>
     types.data?.items.find((type) => type.id === id)?.name ??
@@ -151,13 +159,13 @@ export function DocumentReview({
           </button>
         )}
       </div>
-      {unit.override_author && (
+      {unit.type_overridden && (
         <Notice>
-          Тип или состав подтверждён специалистом: {unit.override_author}.
+          Тип изменён специалистом. Автор и основание доступны в журнале заявки.
         </Notice>
       )}
       {editing && !stale ? (
-        <ReviewEditor unit={unit} item={item} close={() => setEditing(false)} />
+        <ReviewEditor unit={unit} item={item} fragments={fragments} close={() => setEditing(false)} />
       ) : (
         <>
           <div className="field-list">

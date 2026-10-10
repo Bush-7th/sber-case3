@@ -1,4 +1,7 @@
 import { z } from "zod";
+import type { components } from "./schema";
+
+// Local screen models. HTTP requests/responses use the generated CON01 types.
 
 export const roleSchema = z.enum(["specialist", "admin"]);
 export const sessionSchema = z.object({
@@ -9,13 +12,14 @@ export type Session = z.infer<typeof sessionSchema>;
 export const severitySchema = z.enum(["error", "warning", "attention", "info"]);
 export const verdictSchema = z.enum(["pass", "review_required", "issues"]);
 export const sourceSchema = z.object({
+  file_id: z.string(),
   file_version_id: z.string(),
   page: z.number().int().positive().nullable(),
   sheet: z.string().nullable(),
   cell_range: z.string().nullable(),
   paragraph: z.string().nullable(),
   quote: z.string().nullable(),
-  method: z.enum(["native", "ocr"]),
+  method: z.enum(["native", "ocr", "vision"]),
   derived: z.boolean(),
 });
 export type Evidence = z.infer<typeof sourceSchema>;
@@ -37,7 +41,8 @@ export const unitSchema = z.object({
   id: z.string(),
   predicted_type: z.string().nullable(),
   effective_type: z.string().nullable(),
-  override_author: z.string().nullable(),
+  type_overridden: z.boolean(),
+  fragments: z.array(z.object({ id: z.string(), source: sourceSchema })),
   file_version_ids: z.array(z.string()),
   fields: z.array(fieldSchema),
   issues: z.array(issueSchema),
@@ -45,6 +50,9 @@ export const unitSchema = z.object({
 export type DocumentUnit = z.infer<typeof unitSchema>;
 export const fileSchema = z.object({
   id: z.string(),
+  file_version_id: z.string(),
+  page_count: z.number().int().positive().nullable(),
+  sheet_names: z.array(z.string()),
   name: z.string(),
   format: z.string(),
   size_bytes: z.number(),
@@ -75,24 +83,29 @@ export const decisionSchema = z.object({
   created_at: z.string(),
   input_revision: z.number(),
   report_id: z.string().nullable(),
+  freshness: z.enum(["current", "outdated"]),
 });
 export const contextSchema = z.object({
   project_type: z.string(),
   certificate_required: z.enum(["true", "false", "unknown"]),
   gims_required: z.enum(["true", "false", "unknown"]),
+  conditions: z.record(z.string(), z.boolean().nullable()),
 });
 export type ProjectContext = z.infer<typeof contextSchema>;
 export const summarySchema = z.object({
   id: z.string(),
   title: z.string(),
   program_id: z.string(),
-  program_name: z.string(),
   program_version_id: z.string(),
   input_revision: z.number(),
   updated_at: z.string(),
-  file_count: z.number(),
+  file_count: z.number().nullable(),
   verdict: verdictSchema.nullable(),
   decision: decisionSchema.nullable(),
+  decision_status: z.enum(["accepted", "needs_revision", "rejected", "not_decided"]),
+  decision_freshness: z.enum(["current", "outdated"]).nullable(),
+  report_freshness: z.enum(["current", "outdated"]).nullable(),
+  report_provisional: z.boolean().nullable(),
 });
 export type PackageSummary = z.infer<typeof summarySchema>;
 export const packageSchema = summarySchema.extend({
@@ -100,13 +113,6 @@ export const packageSchema = summarySchema.extend({
   files: z.array(fileSchema),
   requested_run_id: z.string().nullable(),
   decisions: z.array(decisionSchema),
-  report_history: z.array(
-    z.object({
-      run_id: z.string(),
-      input_revision: z.number(),
-      created_at: z.string(),
-    }),
-  ),
 });
 export type Package = z.infer<typeof packageSchema>;
 export const runSchema = z.object({
@@ -134,6 +140,7 @@ export const runSchema = z.object({
         z.object({
           document_type: z.string(),
           kind: z.enum(["required", "conditional", "optional"]),
+          severity: severitySchema,
           status: z.enum([
             "found",
             "missing",
@@ -164,66 +171,14 @@ export const runSchema = z.object({
     .nullable(),
 });
 export type Run = z.infer<typeof runSchema>;
-export const documentTypeSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  extension: z.boolean(),
-});
 export const programSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
 });
 export type Program = z.infer<typeof programSchema>;
-export const versionSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  published_at: z.string(),
-});
-export const predicateSchema = z.object({
-  field: z.enum(["certificate_required", "gims_required"]),
-  operator: z.literal("is_true"),
-});
-export const requirementSchema = z.object({
-  document_type: z.string(),
-  kind: z.enum(["required", "conditional", "optional"]),
-  count: z.number().int().positive(),
-  predicate: predicateSchema.nullable(),
-  severity: severitySchema,
-});
-export const bindingSchema = z.object({
-  document_type: z.string(),
-  field: z.string(),
-  subject_role: z.enum(["applicant", "guarantor"]).nullable(),
-});
-export const ruleSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  family: z.enum([
-    "required_fields",
-    "non_empty",
-    "matches_regex",
-    "date_compare",
-    "ratio_gte",
-    "amount_equal",
-    "same_subject_value",
-  ]),
-  operands: z.array(bindingSchema),
-  parameters: z.record(z.string(), z.string()),
-  severity: severitySchema,
-  on_missing: z.literal("UNKNOWN"),
-  needs_clarification: z.boolean(),
-});
-export type RuleDefinition = z.infer<typeof ruleSchema>;
-export const draftSchema = z.object({
-  id: z.string(),
-  program_id: z.string(),
-  name: z.string(),
-  row_version: z.number().int(),
-  requirements: z.array(requirementSchema),
-  rules: z.array(ruleSchema),
-});
-export type ProgramDraft = z.infer<typeof draftSchema>;
+export type RuleDefinition = components["schemas"]["RuleDefinition"];
+export type ProgramDraft = components["schemas"]["ProgramDraft"];
 export const uploadSchema = z.object({
   input_revision: z.number(),
   run_id: z.string().nullable(),
@@ -234,12 +189,15 @@ export const uploadSchema = z.object({
 });
 export const sheetSchema = z.object({
   sheet: z.string(),
-  sheets: z.array(z.string()),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
   cells: z.array(
     z.object({
       address: z.string(),
       value: z.string().nullable(),
       formula: z.string().nullable(),
+      known_state: z.enum(["known", "missing", "unreadable"]),
     }),
   ),
 });
@@ -251,9 +209,8 @@ export const auditSchema = z.object({
       actor: z.string(),
       created_at: z.string(),
       input_revision: z.number().nullable(),
+      run_id: z.string().nullable(),
       message: z.string(),
     }),
   ),
 });
-export const pageOf = <T extends z.ZodType>(schema: T) =>
-  z.object({ items: z.array(schema), next_cursor: z.string().nullable() });

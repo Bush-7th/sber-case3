@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Search } from "lucide-react";
 import { api } from "../../shared/api/client";
@@ -20,10 +20,12 @@ export function PackageList() {
   const packages = useInfiniteQuery({
     queryKey: ["packages"],
     queryFn: ({ pageParam, signal }) => api.packages(pageParam, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.next_cursor ?? undefined,
+    initialPageParam: 0,
+    getNextPageParam: (page) => page.offset + page.items.length < page.total ? page.offset + page.items.length : undefined,
     refetchInterval: 2000,
   });
+  const programs = useQuery({ queryKey: ["programs"], queryFn: ({ signal }) => api.programs(signal) });
+  const programName = (id: string) => programs.data?.items.find(p => p.id === id)?.name ?? id;
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
@@ -43,7 +45,7 @@ export function PackageList() {
   );
   const items = packages.data?.pages.flatMap((page) => page.items) ?? [];
   const filtered = items.filter((p) =>
-    `${p.title} ${p.program_name}`
+    `${p.title} ${programName(p.program_id)}`
       .toLocaleLowerCase("ru")
       .includes(search.toLocaleLowerCase("ru")),
   );
@@ -82,7 +84,7 @@ export function PackageList() {
               <input
                 autoFocus
                 required
-                maxLength={250}
+                maxLength={200}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Организация или название проекта"
@@ -168,29 +170,30 @@ export function PackageList() {
                         {item.title}
                         <ArrowRight size={15} />
                       </Link>
-                      <small>{item.program_name}</small>
+                      <small>{programName(item.program_id)}</small>
                     </td>
-                    <td>{fileCount(item.file_count)}</td>
+                    <td>{item.file_count === null ? "В карточке заявки" : fileCount(item.file_count)}</td>
                     <td>
                       {item.verdict ? (
-                        <Badge tone={item.verdict}>
-                          {verdictLabels[item.verdict]}
+                        <Badge tone={item.report_freshness === "outdated" || item.report_provisional ? "warning" : item.verdict}>
+                          {item.verdict === "pass" && item.report_provisional ? "Итог не подтверждён" : verdictLabels[item.verdict]}
+                          {item.report_freshness === "outdated" ? " · устарел" : item.report_provisional ? " · предварительно" : ""}
                         </Badge>
                       ) : (
                         <Badge>Ожидает проверки</Badge>
                       )}
                     </td>
                     <td>
-                      {item.decision ? (
+                      {item.decision_status !== "not_decided" ? (
                         <Badge
                           tone={
-                            item.decision.input_revision === item.input_revision
-                              ? item.decision.action
+                            item.decision_freshness === "current"
+                              ? item.decision_status
                               : "warning"
                           }
                         >
-                          {decisionLabels[item.decision.action]}
-                          {item.decision.input_revision !== item.input_revision
+                          {decisionLabels[item.decision_status]}
+                          {item.decision_freshness !== "current"
                             ? " · устарело"
                             : ""}
                         </Badge>

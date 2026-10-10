@@ -22,9 +22,7 @@ export function FileProgress({
   run: Run | undefined;
   historical: boolean;
 }) {
-  const verify = useCommand((fileId: string) =>
-    api.verify(item.id, item.input_revision, fileId),
-  );
+  const verify = useCommand(() => api.verify(item.id, item.input_revision));
   const files = run?.files ?? item.files;
   return (
     <section className="panel">
@@ -87,14 +85,14 @@ export function FileProgress({
                   <small>{stageLabels[file.processing_stage]}</small>
                 )}
                 {file.verdict && <small>{verdictLabels[file.verdict]}</small>}
-                {file.error?.retryable && !historical && (
+                {file.error && !historical && (
                   <button
                     className="button secondary compact"
                     disabled={verify.isPending}
-                    onClick={() => verify.mutate(file.id)}
+                    onClick={() => verify.mutate()}
                   >
                     <RefreshCw size={13} />
-                    Повторить
+                    Перепроверить заявку
                   </button>
                 )}
               </div>
@@ -178,9 +176,7 @@ export function RunResult({
                       requirement.status === "found"
                         ? "success"
                         : requirement.status === "missing"
-                          ? requirement.kind === "conditional"
-                            ? "warning"
-                            : "error"
+                          ? requirement.severity
                           : "neutral"
                     }
                   >

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertCircle, FileSearch, RefreshCw } from "lucide-react";
 import { ApiError } from "../api/client";
+import { MissingCsrfTokenError } from "../api/openapi-client";
 import type { Issue } from "../api/contracts";
 
 export const verdictLabels = {
@@ -41,6 +42,7 @@ const messages: Record<string, string> = {
   FILE_TOO_LARGE: "Файл превышает установленный сервером размер.",
 };
 export function errorMessage(error: unknown): string {
+  if (error instanceof MissingCsrfTokenError) return error.message;
   if (error instanceof ApiError) {
     if (error.status === 401 && error.code === "invalid_credentials")
       return "Неверный логин или пароль.";

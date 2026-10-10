@@ -23,7 +23,12 @@ import { ProgramFields } from "./ProgramFields";
 function Configuration({ item, close }: { item: Package; close: () => void }) {
   const [context, setContext] = useState(item.context);
   const [version, setVersion] = useState(item.program_version_id);
-  const [revision] = useState(item.input_revision);
+  const [revision, setRevision] = useState(item.input_revision);
+  const versions = useQuery({
+    queryKey: ["versions", item.program_id],
+    queryFn: ({ signal }) => api.versions(item.program_id, signal),
+  });
+  const conditionLabel = { true: "да", false: "нет", unknown: "пока неизвестно" };
   const save = useCommand(
     () =>
       api.configure(item.id, {
@@ -55,6 +60,15 @@ function Configuration({ item, close }: { item: Package; close: () => void }) {
           проверку всех файлов заявки.
         </Notice>
         <ErrorNotice error={save.error} />
+        {revision !== item.input_revision && (
+          <Notice tone="warning">
+            Заявка обновилась до ревизии {item.input_revision}. Сверьте текущие настройки и свои правки.
+            <p>Сейчас: {versions.data?.items.find(v => v.id === item.program_version_id)?.label ?? "редакция ещё не получена"}; тип проекта — {item.context.project_type || "не указан"}; сертификат — {conditionLabel[item.context.certificate_required]}; ГИМС — {conditionLabel[item.context.gims_required]}.</p>
+            <button type="button" className="button secondary" onClick={() => { setRevision(item.input_revision); save.reset(); }}>
+              Сверено: применить правки к актуальной ревизии
+            </button>
+          </Notice>
+        )}
         <div className="form-actions">
           <button
             className="button secondary"
@@ -66,7 +80,7 @@ function Configuration({ item, close }: { item: Package; close: () => void }) {
           </button>
           <button
             className="button primary"
-            disabled={save.isPending || !version}
+            disabled={save.isPending || !version || revision !== item.input_revision}
           >
             Применить и перепроверить
           </button>
@@ -102,6 +116,7 @@ function Workspace({ id }: { id: string }) {
     queryKey: ["audit", id, item.data?.input_revision],
     queryFn: ({ signal }) => api.audit(id, signal),
   });
+  const programs = useQuery({ queryKey: ["programs"], queryFn: ({ signal }) => api.programs(signal) });
   const verify = useCommand(() => api.verify(id, item.data!.input_revision));
   if (item.isPending) return <Loading />;
   if (!item.data)
@@ -127,7 +142,7 @@ function Workspace({ id }: { id: string }) {
       </Link>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">{pkg.program_name}</span>
+          <span className="eyebrow">{programs.data?.items.find(p => p.id === pkg.program_id)?.name ?? pkg.program_id}</span>
           <h1>{pkg.title}</h1>
           <p>
             Ревизия {pkg.input_revision} · Обновлено {dateTime(pkg.updated_at)}
@@ -169,7 +184,7 @@ function Workspace({ id }: { id: string }) {
                 }}
               >
                 <option value="">Текущая проверка</option>
-                {pkg.report_history.map((report) => (
+                {(audit.data?.items.filter(event => event.run_id && event.input_revision !== null).filter((event, i, items) => items.findIndex(e => e.run_id === event.run_id) === i).map(event => ({ run_id: event.run_id!, input_revision: event.input_revision!, created_at: event.created_at })) ?? []).map((report) => (
                   <option value={report.run_id} key={report.run_id}>
                     Ревизия {report.input_revision} ·{" "}
                     {dateTime(report.created_at)}
@@ -204,6 +219,7 @@ function Workspace({ id }: { id: string }) {
               key={`${unit.id}-${run.data!.id}`}
               unit={unit}
               item={pkg}
+              fragments={run.data!.document_units.flatMap(d => d.fragments)}
               stale={stale || !!historyRun}
               onSource={setSource}
             />

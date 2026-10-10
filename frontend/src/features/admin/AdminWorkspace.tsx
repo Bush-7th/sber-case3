@@ -23,51 +23,80 @@ const familyLabels: Record<RuleDefinition["family"], string> = {
   same_subject_value: "Одинаковое значение заявителя",
 };
 const parameterKeys: Record<RuleDefinition["family"], string[]> = {
-  required_fields: ["fields"],
+  required_fields: ["field_ids"],
   non_empty: [],
   matches_regex: ["pattern"],
-  date_compare: ["operator", "reference"],
+  date_compare: ["date_mode"],
   ratio_gte: ["factor"],
   amount_equal: [],
-  same_subject_value: ["subject_role"],
+  same_subject_value: [],
 };
 const parameterLabels: Record<string, string> = {
-  fields: "Поля (через запятую)",
+  field_ids: "Поля (через запятую)",
   pattern: "Шаблон полного совпадения",
-  operator: "Операция сравнения",
+  date_mode: "Проверка даты",
   reference: "Дата сравнения",
   factor: "Минимальная доля (0.50 = 50%)",
   subject_role: "Роль организации",
 };
 
+type Predicate = NonNullable<ProgramDraft["definition"]["requirements"][number]["predicate"]>;
+function ConditionEditor({ value, onChange }: { value: Predicate | null; onChange: (value: Predicate | null) => void }) {
+  return <div className="condition-editor">
+    <label>Условие
+      <select value={value?.kind ?? "none"} onChange={e => {
+        const kind = e.target.value;
+        onChange(kind === "none" ? null : kind === "equals" ? { kind, field: "project_type", value: "" } : kind === "is_true" ? { kind, field: "certificate_required" } : { kind: kind as "all" | "any", operands: [{ kind: "is_true", field: "certificate_required" }] });
+      }}>
+        <option value="none">Не задано</option><option value="is_true">Поле = да</option><option value="equals">Поле равно значению</option><option value="all">Все условия</option><option value="any">Хотя бы одно условие</option>
+      </select>
+    </label>
+    {value && "field" in value && <label>Поле условия
+      <input required value={value.field} onChange={e => onChange({ ...value, field: e.target.value })} list="context-fields" />
+    </label>}
+    {value?.kind === "equals" && <>
+      <label>Тип значения<select value={typeof value.value} onChange={e => onChange({ ...value, value: e.target.value === "boolean" ? true : "" })}><option value="string">Текст</option><option value="boolean">Да / нет</option></select></label>
+      <label>Значение{typeof value.value === "boolean" ? <select value={String(value.value)} onChange={e => onChange({ ...value, value: e.target.value === "true" })}><option value="true">Да</option><option value="false">Нет</option></select> : <input required value={value.value} onChange={e => onChange({ ...value, value: e.target.value })} />}</label>
+    </>}
+    {value && "operands" in value && <>
+      {value.operands.map((child, index) => <div key={index} className="condition-child">
+        <ConditionEditor value={child} onChange={next => { if (next) onChange({ ...value, operands: value.operands.map((v, i) => i === index ? next : v) }); }} />
+        <button type="button" className="text-link" disabled={value.operands.length === 1} onClick={() => onChange({ ...value, operands: value.operands.filter((_, i) => i !== index) })}>Удалить условие {index + 1}</button>
+      </div>)}
+      <button type="button" className="text-link" onClick={() => onChange({ ...value, operands: [...value.operands, { kind: "is_true", field: "gims_required" }] })}>Добавить условие</button>
+    </>}
+  </div>;
+}
 function DraftEditor({ original }: { original: ProgramDraft }) {
-  const [draft, setDraft] = useState(original);
+  const [definition, setDefinition] = useState(original.definition);
+  const [revision, setRevision] = useState(original.revision);
+  const draft = { ...definition, row_version: revision };
+  const toWire = () => ({ ...original, revision, definition });
   const [dirty, setDirty] = useState(false);
   const [validatedVersion, setValidatedVersion] = useState<number | null>(null);
   const [published, setPublished] = useState("");
-  const types = useQuery({
-    queryKey: ["document-types"],
-    queryFn: ({ signal }) => api.documentTypes(signal),
-  });
+  const types = { data: { items: draft.document_types.map(t => ({ id: t.id, name: t.label, extension: t.extension })) }, error: null };
   const save = useCommand(
-    () => api.saveDraft(draft),
+    () => api.saveDraft(toWire()),
     (saved) => {
-      setDraft(saved);
+      setDefinition(saved.definition);
+      setRevision(saved.revision);
       setDirty(false);
       setValidatedVersion(null);
     },
   );
   const validate = useCommand(
-    () => api.validateDraft(draft),
-    (result) => setValidatedVersion(result.valid ? draft.row_version : null),
+    () => api.validateDraft(toWire()),
+    (result) => setValidatedVersion(result.valid ? result.revision : null),
   );
   const publish = useCommand(
-    () => api.publishDraft(draft),
+    () => api.publishDraft(toWire()),
     (version) => setPublished(version.label),
   );
   const pending = save.isPending || validate.isPending || publish.isPending;
-  function change(next: ProgramDraft) {
-    setDraft(next);
+  function change(next: ProgramDraft["definition"] & { row_version: number }) {
+    const { row_version: _revision, ...updated } = next;
+    setDefinition(updated);
     setDirty(true);
     setValidatedVersion(null);
     validate.reset();
@@ -99,7 +128,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
         </div>
         <Badge>Черновик</Badge>
       </div>
-      {original.row_version > draft.row_version && (
+      {original.revision > draft.row_version && (
         <Notice tone="warning">
           Черновик изменён другим участником. Сверьте введённые данные перед
           загрузкой новой версии.
@@ -107,7 +136,8 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
             type="button"
             className="button secondary compact"
             onClick={() => {
-              setDraft(original);
+              setDefinition(original.definition);
+              setRevision(original.revision);
               setDirty(false);
               setValidatedVersion(null);
               save.reset();
@@ -128,6 +158,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
           save.mutate();
         }}
       >
+        <datalist id="context-fields"><option value="certificate_required" /><option value="gims_required" /><option value="project_type" /></datalist>
         <fieldset disabled={pending}>
           <label>
             Название программы
@@ -152,9 +183,9 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                       {
                         document_type: types.data!.items[0].id,
                         kind: "optional",
-                        count: 1,
+                        id: crypto.randomUUID(), quantity: 1, needs_clarification: false,
                         predicate: null,
-                        severity: "info",
+                        missing_severity: "info",
                       },
                     ],
                   })
@@ -176,7 +207,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                         ...draft,
                         requirements: draft.requirements.map((r, i) =>
                           i === index
-                            ? { ...r, document_type: e.target.value }
+                            ? { ...r, document_type: e.target.value as typeof r.document_type }
                             : r,
                         ),
                       })
@@ -203,7 +234,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                             ? {
                                 ...r,
                                 kind,
-                                severity:
+                                missing_severity:
                                   kind === "conditional"
                                     ? "warning"
                                     : kind === "required"
@@ -213,7 +244,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                                   kind === "conditional"
                                     ? {
                                         field: "certificate_required",
-                                        operator: "is_true",
+                                        kind: "is_true",
                                       }
                                     : null,
                               }
@@ -234,50 +265,20 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                     min="1"
                     step="1"
                     required
-                    value={req.count}
+                    value={req.quantity}
                     onChange={(e) =>
                       change({
                         ...draft,
                         requirements: draft.requirements.map((r, i) =>
                           i === index
-                            ? { ...r, count: Number(e.target.value) }
+                            ? { ...r, quantity: Number(e.target.value) }
                             : r,
                         ),
                       })
                     }
                   />
                 </label>
-                {req.kind === "conditional" && (
-                  <label>
-                    Условие
-                    <select
-                      value={req.predicate?.field ?? "certificate_required"}
-                      onChange={(e) =>
-                        change({
-                          ...draft,
-                          requirements: draft.requirements.map((r, i) =>
-                            i === index
-                              ? {
-                                  ...r,
-                                  predicate: {
-                                    field: e.target.value as
-                                      | "certificate_required"
-                                      | "gims_required",
-                                    operator: "is_true",
-                                  },
-                                }
-                              : r,
-                          ),
-                        })
-                      }
-                    >
-                      <option value="certificate_required">
-                        Нужен сертификат = да
-                      </option>
-                      <option value="gims_required">Нужна ГИМС = да</option>
-                    </select>
-                  </label>
-                )}
+                {req.kind === "conditional" && <ConditionEditor value={req.predicate ?? null} onChange={predicate => change({ ...draft, requirements: draft.requirements.map((r, i) => i === index ? { ...r, predicate } : r) })} />}
                 <button
                   type="button"
                   className="icon-button"
@@ -313,12 +314,12 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                       ...draft.rules,
                       {
                         id: crypto.randomUUID(),
-                        name: "Новое правило",
+
                         family: "non_empty",
-                        operands: [],
+                        bindings: [],
                         parameters: {},
-                        severity: "attention",
-                        on_missing: "UNKNOWN",
+                        severity: "warning",
+
                         needs_clarification: true,
                       },
                     ],
@@ -330,13 +331,13 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
               </button>
             </div>
             {draft.rules.map((rule, index) => (
-              <div className="rule-editor" key={rule.id}>
+              <div className="rule-editor" key={index}>
                 <div className="rule-editor-heading">
-                  <strong>{rule.name}</strong>
+                  <strong>{rule.id}</strong>
                   <button
                     type="button"
                     className="icon-button"
-                    aria-label={`Удалить правило ${rule.name}`}
+                    aria-label={`Удалить правило ${rule.id}`}
                     onClick={() =>
                       change({
                         ...draft,
@@ -349,12 +350,12 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                 </div>
                 <div className="form-grid">
                   <label>
-                    Название
+                    Ключ правила
                     <input
                       required
-                      value={rule.name}
+                      value={rule.id}
                       onChange={(e) =>
-                        changeRule(index, { ...rule, name: e.target.value })
+                        changeRule(index, { ...rule, id: e.target.value })
                       }
                     />
                   </label>
@@ -392,14 +393,14 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                     >
                       <option value="error">Ошибка</option>
                       <option value="warning">Замечание</option>
-                      <option value="attention">Требует внимания</option>
+
                       <option value="info">Информация</option>
                     </select>
                   </label>
                   {parameterKeys[rule.family].map((key) => (
                     <label key={key}>
                       {parameterLabels[key]}
-                      <input
+                      {key === "date_mode" ? <select required value={rule.parameters?.date_mode ?? ""} onChange={e => changeRule(index, { ...rule, parameters: { ...rule.parameters, date_mode: e.target.value as "not_future" | "not_expired" } })}><option value="">Выберите проверку</option><option value="not_future">Дата не в будущем</option><option value="not_expired">Срок не истёк</option></select> : <input
                         required
                         inputMode={key === "factor" ? "decimal" : "text"}
                         pattern={
@@ -407,18 +408,17 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                             ? "0(\\.[0-9]+)?|1(\\.0+)?"
                             : undefined
                         }
-                        value={rule.parameters[key] ?? ""}
+                        value={key === "field_ids" ? (rule.parameters?.field_ids ?? []).join(", ") : key === "factor" ? rule.parameters?.factor ?? "" : key === "pattern" ? rule.parameters?.pattern ?? "" : rule.parameters?.date_mode ?? ""}
                         onChange={(e) =>
                           changeRule(index, {
                             ...rule,
                             parameters: {
                               ...rule.parameters,
-                              [key]: e.target.value,
+                              [key]: key === "field_ids" ? e.target.value.split(",").map(v => v.trim()).filter(Boolean) : e.target.value,
                             },
                           })
                         }
-                      />
-                    </label>
+                      />}</label>
                   ))}
                 </div>
                 <div className="binding-list">
@@ -431,11 +431,11 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                       onClick={() =>
                         changeRule(index, {
                           ...rule,
-                          operands: [
-                            ...rule.operands,
+                          bindings: [
+                            ...(rule.bindings ?? []),
                             {
                               document_type: types.data!.items[0].id,
-                              field: "",
+                              operand: `operand_${(rule.bindings ?? []).length + 1}`, field_id: "",
                               subject_role: "applicant",
                             },
                           ],
@@ -445,8 +445,9 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                       Добавить операнд
                     </button>
                   </div>
-                  {rule.operands.map((binding, bindingIndex) => (
+                  {(rule.bindings ?? []).map((binding, bindingIndex) => (
                     <div className="binding-row" key={bindingIndex}>
+                      <label>Имя операнда<input required value={binding.operand} onChange={e => changeRule(index, { ...rule, bindings: (rule.bindings ?? []).map((b, i) => i === bindingIndex ? { ...b, operand: e.target.value } : b) })} /></label>
                       <label>
                         Вид
                         <select
@@ -454,9 +455,9 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                           onChange={(e) =>
                             changeRule(index, {
                               ...rule,
-                              operands: rule.operands.map((b, i) =>
+                              bindings: (rule.bindings ?? []).map((b, i) =>
                                 i === bindingIndex
-                                  ? { ...b, document_type: e.target.value }
+                                  ? { ...b, document_type: e.target.value as typeof b.document_type }
                                   : b,
                               ),
                             })
@@ -473,13 +474,13 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                         Ключ поля
                         <input
                           required
-                          value={binding.field}
+                          value={binding.field_id}
                           onChange={(e) =>
                             changeRule(index, {
                               ...rule,
-                              operands: rule.operands.map((b, i) =>
+                              bindings: (rule.bindings ?? []).map((b, i) =>
                                 i === bindingIndex
-                                  ? { ...b, field: e.target.value }
+                                  ? { ...b, field_id: e.target.value }
                                   : b,
                               ),
                             })
@@ -489,23 +490,24 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                       <label>
                         Организация
                         <select
-                          value={binding.subject_role ?? ""}
+                          value={binding.subject_role ?? "unknown"}
                           onChange={(e) =>
                             changeRule(index, {
                               ...rule,
-                              operands: rule.operands.map((b, i) =>
+                              bindings: (rule.bindings ?? []).map((b, i) =>
                                 i === bindingIndex
                                   ? {
                                       ...b,
                                       subject_role: (e.target.value ||
-                                        null) as typeof b.subject_role,
+                                        "unknown") as typeof b.subject_role,
                                     }
                                   : b,
                               ),
                             })
                           }
                         >
-                          <option value="">Не указана</option>
+                          <option value="unknown">Не указана</option>
+                          <option value="person">Физическое лицо</option>
                           <option value="applicant">Заявитель</option>
                           <option value="guarantor">Гарант</option>
                         </select>
@@ -517,7 +519,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
                         onClick={() =>
                           changeRule(index, {
                             ...rule,
-                            operands: rule.operands.filter(
+                            bindings: (rule.bindings ?? []).filter(
                               (_, i) => i !== bindingIndex,
                             ),
                           })
@@ -572,7 +574,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
           <button
             type="button"
             className="button secondary"
-            disabled={pending || dirty}
+            disabled={pending || dirty || original.revision !== revision}
             onClick={() => validate.mutate()}
           >
             <Check size={16} />
@@ -582,7 +584,7 @@ function DraftEditor({ original }: { original: ProgramDraft }) {
             type="button"
             className="button primary"
             disabled={
-              pending || dirty || validatedVersion !== draft.row_version
+              pending || dirty || original.revision !== revision || validatedVersion !== draft.row_version
             }
             onClick={() => publish.mutate()}
           >
@@ -617,7 +619,7 @@ export function AdminWorkspace() {
     enabled: !!draftId,
   });
   const create = useCommand(
-    () => api.createDraft(programId, versionId),
+    () => api.createDraft(programs.data?.items.find(p => p.id === programId)?.name ?? "", versionId),
     (draft) => setDraftId(draft.id),
   );
   return (

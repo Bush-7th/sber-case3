@@ -7,6 +7,7 @@ export const initialContext: ProjectContext = {
   project_type: "",
   certificate_required: "unknown",
   gims_required: "unknown",
+  conditions: {},
 };
 export function ProgramFields({
   programId,

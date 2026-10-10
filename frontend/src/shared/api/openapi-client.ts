@@ -9,7 +9,10 @@ export class ApiError extends Error {
   readonly details: ErrorEnvelope["details"];
   readonly correlationId: string;
 
-  constructor(status: number, body: ErrorEnvelope) {
+  constructor(status: number, value: ErrorEnvelope | string, correlationId?: string) {
+    const body = typeof value === "string" ? {
+      code: value, message: value, details: {}, correlation_id: correlationId ?? "",
+    } : value;
     super(body.message);
     this.name = "ApiError";
     this.status = status;
