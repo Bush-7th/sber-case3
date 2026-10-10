@@ -1,0 +1,32 @@
+# Local configuration and document material
+.env
+.env.*
+!.env.example
+samples/
+private-documents/
+local-data/
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+
+# Python and JavaScript tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editors and system files
+.DS_Store
+.idea/
+.vscode/
