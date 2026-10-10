@@ -7,6 +7,7 @@ from app.modules.assets.persistence import BlobReferenceRow, BlobRow  # noqa: F4
 from app.modules.identity.persistence import RoleRow, SessionRow, UserRow  # noqa: F401
 from app.runtime.database import Base
 from app.runtime.settings import Settings
+from app.runtime.workflow_storage import JobRow, ResourceRow  # noqa: F401
 
 target_metadata = Base.metadata
 

@@ -16,6 +16,12 @@ def secret_hash(secret: str) -> str:
     return sha256(secret.encode()).hexdigest()
 
 
+def session_csrf(cookie: str) -> str:
+    # The random HttpOnly session cookie is never exposed to browser scripts.
+    # Domain separation permits recovery without storing the CSRF secret in plaintext.
+    return secret_hash("case3-csrf-v1:" + cookie)
+
+
 @dataclass(frozen=True)
 class IssuedSession:
     session: ResolvedSession
@@ -37,7 +43,8 @@ class IdentityService:
         if not record or not valid or not record.active:
             raise InvalidCredentials
         now = datetime.now(UTC)
-        cookie, csrf_token = token_urlsafe(32), token_urlsafe(32)
+        cookie = token_urlsafe(32)
+        csrf_token = session_csrf(cookie)
         session = ResolvedSession(
             actor=record.actor,
             token_hash=secret_hash(cookie),

@@ -12,9 +12,13 @@ describe("CON01 transport used by React", () => {
     await expect(api.login("username", "password")).resolves.toMatchObject({ user: { name: session.user.display_name, role: uiRole } });
     expect(await (transport.mock.calls[0][0] as Request).json()).toEqual({ username: "username", password: "password" });
   });
-  it("does not invent a session recovery request", async () => {
-    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
-    await expect(api.session()).resolves.toBeNull(); expect(fetch).not.toHaveBeenCalled();
+  it("recovers the session and CSRF using a cookie-backed GET", async () => {
+    const fetch = vi.fn().mockResolvedValue(json(session)); vi.stubGlobal("fetch", fetch);
+    await expect(api.session()).resolves.toMatchObject({ user: { role: "specialist" }, csrf_token: session.csrf_token });
+    const request = fetch.mock.calls[0][0] as Request;
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/v1/sessions");
+    expect(request.credentials).toBe("same-origin");
   });
   it("rejects malformed success and keeps dependency errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(json({ items: [{ id: "x" }] })).mockResolvedValueOnce(json({ code: "dependency_unavailable", message: "Unavailable", correlation_id: ids.correlation, details: { dependency: "database" } }, 503)));

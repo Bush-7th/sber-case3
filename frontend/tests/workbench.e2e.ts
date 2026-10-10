@@ -4,12 +4,16 @@ import { draft, errorBody, file, ids, item, pageOf, program, requested, run, ses
 type S = components["schemas"];
 
 async function install(page: Page, role: "specialist" | "administrator" = "specialist") {
-  const state = { item: structuredClone(item), run: structuredClone(run), draft: structuredClone(draft) };
+  const state = { item: structuredClone(item), run: structuredClone(run), draft: structuredClone(draft), authenticated: false };
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname;
     let body: unknown;
-    if (path === "/api/v1/sessions" && route.request().method() === "POST") body = { ...session, user: { ...session.user, role } };
-    else if (path === "/api/v1/sessions" && route.request().method() === "DELETE") { await route.fulfill({ status: 204 }); return; }
+    if (path === "/api/v1/sessions" && route.request().method() === "POST") { state.authenticated = true; body = { ...session, user: { ...session.user, role } }; }
+    else if (path === "/api/v1/sessions" && route.request().method() === "GET") {
+      if (!state.authenticated) { await route.fulfill({ status: 401, json: errorBody("session_required") }); return; }
+      body = { ...session, user: { ...session.user, role } };
+    }
+    else if (path === "/api/v1/sessions" && route.request().method() === "DELETE") { state.authenticated = false; await route.fulfill({ status: 204 }); return; }
     else if (path === "/api/v1/programs") body = pageOf([program]);
     else if (path === `/api/v1/programs/${ids.program}/versions`) body = pageOf([version]);
     else if (path === "/api/v1/packages") body = route.request().method() === "POST" ? state.item : pageOf([state.item]);
@@ -43,6 +47,20 @@ async function confirmDecision(page: Page) {
 function decisionResponse(body: S["DecisionCreate"]): S["ApplicationDecision"] {
   return { id: ids.document, package_id: ids.package, input_revision: body.expected_revision, report_id: body.report_id ?? null, action: body.action, reason: body.reason, author: session.user, decided_at: timestamp, freshness: "current" };
 }
+
+test("reload restores the session, navigation and CSRF for logout", async ({ page }) => {
+  await install(page); await login(page);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Выйти", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: item.title })).toBeVisible();
+  await page.route("**/api/v1/sessions", async route => {
+    if (route.request().method() !== "DELETE") { await route.fallback(); return; }
+    expect(route.request().headers()["x-csrf-token"]).toBe(session.csrf_token);
+    await route.fulfill({ status: 204 });
+  });
+  await page.getByRole("button", { name: "Выйти", exact: true }).click();
+  await expect(page.getByLabel("Пароль", { exact: true })).toBeVisible();
+});
 
 test("specialist redirects from admin and sees separate assessments", async ({ page }) => {
   await install(page); await login(page, "/admin");
@@ -113,12 +131,12 @@ test("desktop and phone lists have no page overflow", async ({ page }) => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
 });
-test("keyboard login and reload honestly require a fresh session", async ({ page }) => {
-  await install(page);
+test("expired session after reload returns to login and clears protected data", async ({ page }) => {
+  const state = await install(page);
   const requests: string[] = []; page.on("request", request => requests.push(`${request.method()} ${new URL(request.url()).pathname}`));
-  await login(page); await page.reload();
+  await login(page); state.authenticated = false; await page.reload();
   await expect(page.getByRole("heading", { name: "Вход в систему" })).toBeVisible();
-  expect(requests).not.toContain("GET /api/v1/sessions");
+  expect(requests).toContain("GET /api/v1/sessions");
   await expect(page.getByText(item.title)).toHaveCount(0);
 });
 test("configuration recovers after 409 only after explicit revision review", async ({ page }) => {

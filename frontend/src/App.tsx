@@ -25,8 +25,7 @@ export function App() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: ({ signal }) => resolveSession(signal),
-    // INF01 cannot recover CSRF after a reload yet; commands still validate
-    // the cookie server-side and any 401 clears the protected cache.
+    // Recover the cookie-backed session and CSRF after a reload.
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });

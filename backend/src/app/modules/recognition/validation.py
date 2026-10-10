@@ -167,6 +167,24 @@ def field_observation(field_id, value, fragment, request):
             subject_role=role,
         )
     evidence = value_evidence(value, request, fragment.source_ids)
+    if field_id == "applicant_inn" and fragment.document_type != "application":
+        # An arbitrary number from another document must not become the applicant's INN.
+        # Require the tax identifier label and an explicit applicant role in verified evidence.
+        supported_role = any(
+            re.search(r"\bинн\b|идентификационный номер налогоплательщика", folded(q.excerpt), re.I)
+            and re.search(r"заявител|получател[ья] субсид", folded(q.excerpt), re.I)
+            for q in value.evidence
+        )
+        if not supported_role:
+            return FieldObservation(
+                field_id=field_id,
+                data_type=data_type,
+                raw=value.raw,
+                normalized=None,
+                known_state="unreadable",
+                evidence=evidence,
+                subject_role=SubjectRole.unknown,
+            )
     try:
         parsed = normalized(value.raw, data_type)
     except (ValueError, InvalidOperation):

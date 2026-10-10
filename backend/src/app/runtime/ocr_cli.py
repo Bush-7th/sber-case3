@@ -10,20 +10,13 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.modules.assets.ocr import OcrFailure, OcrSource, OcrSourceConflict, PreparationFailure
-from app.modules.assets.ocr_persistence import FileVersionRow, SqlOcrRepository
+from app.modules.assets.ocr import OcrFailure, OcrSourceConflict, PreparationFailure
 from app.modules.assets.ocr_preparation import prepare_ocr_content, rasterize_pdf_page
 from app.modules.assets.ocr_service import OcrContentService
-from app.modules.assets.persistence import PostgresBlobStore
 from app.runtime.container import AppContainer, build_ocr_client
+from app.runtime.model_inputs import MEDIA
+from app.runtime.model_inputs import register_original as register_original
 from app.runtime.settings import ConfigurationError, Settings
-
-MEDIA = {
-    ".pdf": "application/pdf",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-}
 
 
 def positive_page(value: str) -> int:
@@ -31,25 +24,6 @@ def positive_page(value: str) -> int:
     if page < 1:
         raise argparse.ArgumentTypeError("Page numbering starts at 1")
     return page
-
-
-def register_original(
-    container: AppContainer, data: bytes, media: str, version_id: UUID
-) -> OcrSource:
-    from hashlib import sha256
-
-    digest = sha256(data).hexdigest()
-    with container.unit_of_work() as uow:
-        existing = uow.session.get(FileVersionRow, version_id)
-        if existing:
-            source = OcrSource(existing.file_id, version_id, existing.original_blob_id, digest)
-            SqlOcrRepository(uow.session).validate_source(source)
-            return source
-        blob = PostgresBlobStore(uow.session).put_immutable(uuid4(), data, media)
-        source = OcrSource(uuid4(), version_id, blob.id, blob.sha256)
-        SqlOcrRepository(uow.session).register_source(source)
-        uow.commit()
-        return source
 
 
 async def sample(settings: Settings, args) -> dict:

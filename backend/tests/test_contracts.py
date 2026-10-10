@@ -199,8 +199,8 @@ def test_openapi_is_current_and_operations_have_errors_and_correct_security():
     checked_in = json.loads((Path(__file__).parents[1] / "openapi.json").read_text())
     assert checked_in == schema
     operations = [operation for path in schema["paths"].values() for operation in path.values()]
-    assert len(operations) == 27
-    assert len({operation["operationId"] for operation in operations}) == 27
+    assert len(operations) == 28
+    assert len({operation["operationId"] for operation in operations}) == 28
     for path, item in schema["paths"].items():
         for method, operation in item.items():
             if path.startswith("/health/"):

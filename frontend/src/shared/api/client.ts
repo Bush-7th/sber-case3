@@ -72,6 +72,10 @@ const loginSchema = z.object({ user: z.object({ id: z.string(), display_name: z.
 const versionSchema = z.object({ id: z.string(), program_id: z.string(), version: z.number().int().positive(), published_at: z.string(), definition: a.definitionSchema });
 const draftSummarySchema = a.draftSchema.omit({ definition: true, base_version_id: true });
 const versionView = (v: S["ProgramVersion"]) => ({ ...v, label: `Редакция ${v.version}` });
+const sessionView = (data: S["SessionResponse"]) => {
+  const s = decode(data, loginSchema, value => value);
+  return { user: { id: s.user.id, name: s.user.display_name, role: s.user.role === "administrator" ? "admin" as const : "specialist" as const }, csrf_token: s.csrf_token };
+};
 async function programs(signal?: AbortSignal) {
   return allPages(async offset => page(await receive(http.GET("/api/v1/programs", { params: { query: { offset, limit: 100 } }, signal })), c.programSchema, p => ({ ...p, description: "" })));
 }
@@ -82,14 +86,10 @@ async function versions(id: string, signal?: AbortSignal) {
   });
 }
 export const api = {
-  // INF01 has no recovery endpoint; no speculative GET is sent.
-  session: async (_signal?: AbortSignal): Promise<c.Session | null> => null,
+  session: async (signal?: AbortSignal): Promise<c.Session | null> => sessionView(await receive(http.GET("/api/v1/sessions", { signal }))),
   login: (username: string, password: string) => command(["login", username, password],
     () => http.POST("/api/v1/sessions", { body: { username, password } }),
-    data => {
-      const s = decode(data, loginSchema, value => value);
-      return { user: { id: s.user.id, name: s.user.display_name, role: s.user.role === "administrator" ? "admin" as const : "specialist" as const }, csrf_token: s.csrf_token };
-    }),
+    sessionView),
   logout: () => command(["logout"], key => http.DELETE("/api/v1/sessions", { headers: { "Idempotency-Key": key } }), () => null),
   programs, versions,
   documentTypes: async (programId: string, versionId: string, signal?: AbortSignal) => {

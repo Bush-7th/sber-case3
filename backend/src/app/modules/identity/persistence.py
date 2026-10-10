@@ -83,3 +83,10 @@ class SqlIdentityRepository:
             .where(SessionRow.token_hash == token_hash, SessionRow.revoked_at.is_(None))
             .values(revoked_at=now)
         )
+
+    def update_csrf(self, token_hash: str, csrf_hash: str) -> None:
+        self.session.execute(
+            update(SessionRow)
+            .where(SessionRow.token_hash == token_hash, SessionRow.revoked_at.is_(None))
+            .values(csrf_hash=csrf_hash)
+        )

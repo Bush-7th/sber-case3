@@ -127,6 +127,45 @@ def login(client, username="specialist", password=PASSWORD):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("username", "password", "role"),
+    [("specialist", PASSWORD, "specialist"), ("administrator", ADMIN_PASSWORD, "administrator")],
+)
+def test_session_recovery_preserves_csrf_and_rejects_foreign_origins(
+    configured, username, password, role
+):
+    settings, engine = configured
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/v1/sessions").status_code == 401
+        initial = login(client, username, password).json()
+        for headers in (
+            {"Origin": "https://foreign.example"},
+            {"Sec-Fetch-Site": "cross-site"},
+        ):
+            assert client.get("/api/v1/sessions", headers=headers).status_code == 403
+        recovered = client.get("/api/v1/sessions")
+        assert recovered.status_code == 200
+        assert recovered.json() == initial
+        assert recovered.headers["Cache-Control"] == "no-store"
+        assert recovered.json()["user"]["role"] == role
+        # Sessions issued before recovery was implemented upgrade once; tabs stay stable.
+        with engine.begin() as connection:
+            connection.execute(update(SessionRow).values(csrf_hash=secret_hash("legacy-token")))
+        assert client.get("/api/v1/sessions").json() == initial
+        assert client.get("/api/v1/sessions").json() == initial
+        assert (
+            client.delete("/api/v1/sessions", headers={"X-CSRF-Token": "wrong"}).status_code == 403
+        )
+        assert (
+            client.delete(
+                "/api/v1/sessions", headers={"X-CSRF-Token": initial["csrf_token"]}
+            ).status_code
+            == 204
+        )
+        assert client.get("/api/v1/sessions").status_code == 401
+
+
+@pytest.mark.integration
 def test_migration_roundtrip_and_metadata_match(database_url):
     engine = create_engine(database_url)
     try:
@@ -134,7 +173,7 @@ def test_migration_roundtrip_and_metadata_match(database_url):
             config = migration_config()
             config.attributes["connection"] = connection
             context = MigrationContext.configure(connection)
-            assert context.get_current_revision() == "0002_ocr_results"
+            assert context.get_current_revision() == "0003_workflow"
             assert compare_metadata(context, Base.metadata) == []
             assert (
                 connection.execute(
@@ -189,7 +228,7 @@ def test_secure_session_cookie_is_set_and_removed_on_https(configured):
     with TestClient(create_app(settings), base_url="https://testserver") as client:
         response = login(client)
         assert "Secure" in response.headers["set-cookie"]
-        assert client.get("/api/v1/packages").status_code == 501
+        assert client.get("/api/v1/packages").status_code == 200
         deleted = client.delete(
             "/api/v1/sessions", headers={"X-CSRF-Token": response.json()["csrf_token"]}
         )
@@ -215,8 +254,8 @@ def test_direct_urls_roles_csrf_and_unimplemented_business(configured):
             client.post("/api/v1/packages/not-a-uuid/files", content=b"invalid").status_code == 401
         )
         specialist = login(client)
-        assert client.get(paths[0]).status_code == 501
-        assert client.get(paths[1]).status_code == 501
+        assert client.get(paths[0]).status_code == 200
+        assert client.get(paths[1]).status_code == 404
         assert client.get(paths[-1]).status_code == 403
         assert client.post("/api/v1/packages", json={}).status_code == 403
         assert (
@@ -228,7 +267,7 @@ def test_direct_urls_roles_csrf_and_unimplemented_business(configured):
             == 422
         )
         admin = login(client, "administrator", ADMIN_PASSWORD)
-        assert client.get(paths[-1]).status_code == 501
+        assert client.get(paths[-1]).status_code == 200
         for path in paths[:-1]:
             assert client.get(path).status_code == 403
         assert (
@@ -344,7 +383,7 @@ def test_restart_preserves_sessions_and_missing_dependencies_preserve_liveness(c
     with TestClient(create_app(settings)) as second:
         assert (
             second.get("/api/v1/packages", headers={"Cookie": "session=" + cookie}).status_code
-            == 501
+            == 200
         )
     broken = settings.model_copy(
         update={

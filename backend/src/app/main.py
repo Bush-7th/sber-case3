@@ -17,6 +17,7 @@ from app.http_api.access import authorize_request, check_origin
 from app.http_api.routes import ContractUnavailable, router
 from app.http_api.schemas import ApiError, LivenessResponse, ReadinessResponse
 from app.modules.identity.domain import AccessDenied, AuthenticationRequired, InvalidCredentials
+from app.runtime.application import CommandError
 from app.runtime.container import AppContainer
 from app.runtime.health import readiness
 from app.runtime.settings import ConfigurationError, Settings
@@ -81,7 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.2.0",
         lifespan=lifespan,
         description=(
-            "INF01: sessions and access checks implemented; business operations return 501."
+            "INT01: persistent packages, uploads, verification worker, reports, "
+            "decisions and catalog administration."
         ),
     )
     application.state.container = None
@@ -140,6 +142,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         SQLAlchemyError,
     ):
         application.add_exception_handler(error, service_error)
+
+    @application.exception_handler(CommandError)
+    async def command_error(request: Request, exc: CommandError):
+        return error_response(request, exc.status, exc.code, exc.message)
 
     @application.exception_handler(ContractUnavailable)
     async def unimplemented(request: Request, exc: ContractUnavailable):
