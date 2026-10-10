@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     olmocr_base_url: str = "https://ocr.ilons.ru"
     olmocr_api_token: SecretStr = SecretStr("")
     olmocr_timeout_seconds: int = Field(default=300, gt=0)
+    olmocr_profile_revision: str = Field(default="1", min_length=1, max_length=100)
+    olmocr_max_input_bytes: int = Field(default=50_000_000, gt=0)
+    ocr_preparation_max_pages: int = Field(default=200, gt=0)
     qwen_base_url: str = "https://llm.ilons.ru"
     qwen_model: str = "Qwen/Qwen3.8-27B"
     qwen_context_window_size: int = Field(default=262000, gt=0)

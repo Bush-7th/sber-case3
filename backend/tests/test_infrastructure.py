@@ -1,5 +1,4 @@
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -12,7 +11,6 @@ from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import create_engine, select, text, update
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.main import create_app
@@ -27,7 +25,7 @@ from app.modules.identity.domain import (
 )
 from app.modules.identity.persistence import SessionRow, UserRow
 from app.modules.identity.service import secret_hash
-from app.runtime.cli import bootstrap, migrate, migration_config
+from app.runtime.cli import bootstrap, migration_config
 from app.runtime.database import Base
 from app.runtime.settings import Settings
 
@@ -98,28 +96,6 @@ def test_access_policy_requires_the_resource_owner_and_correct_role():
         policy.require_administrator(owner)
 
 
-@pytest.fixture(scope="module")
-def database_url():
-    source = os.environ.get("TEST_DATABASE_URL")
-    if not source:
-        pytest.skip("Set TEST_DATABASE_URL to run real PostgreSQL integration checks")
-    admin_url = make_url(source)
-    assert admin_url.drivername == "postgresql+psycopg"
-    # Never truncate the database specified by the developer; create our own throwaway database.
-    name = "case3_inf01_" + uuid4().hex
-    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", hide_parameters=True)
-    with admin.connect() as connection:
-        connection.execute(text(f'CREATE DATABASE "{name}"'))
-    target = admin_url.set(database=name)
-    try:
-        migrate(Settings(_env_file=None, database_url=target.render_as_string(hide_password=False)))
-        yield target
-    finally:
-        with admin.connect() as connection:
-            connection.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
-        admin.dispose()
-
-
 @pytest.fixture()
 def configured(database_url):
     engine = create_engine(database_url, hide_parameters=True)
@@ -158,7 +134,7 @@ def test_migration_roundtrip_and_metadata_match(database_url):
             config = migration_config()
             config.attributes["connection"] = connection
             context = MigrationContext.configure(connection)
-            assert context.get_current_revision() == "0001_identity_blobs"
+            assert context.get_current_revision() == "0002_ocr_results"
             assert compare_metadata(context, Base.metadata) == []
             assert (
                 connection.execute(
